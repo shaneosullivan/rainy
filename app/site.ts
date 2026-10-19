@@ -3,7 +3,7 @@ export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://rainy.ie";
 export const SITE_NAME = "rainy.ie";
 export const TITLE = "rainy.ie — Live Rain Radar for Ireland";
 export const DESCRIPTION =
-  "Is it going to rain? See live rainfall radar over Ireland, updated every 5 minutes from Met Éireann. Zoom into your town and scrub through the last hour of rain.";
+  "Is it going to rain? See live rainfall radar over Ireland, updated every 5 minutes, and the rain forecast for the week ahead, from Met Éireann. Zoom into your town and scrub from the last hour into the forecast.";
 export const THEME_COLOR = "#0f172a";
 // The logo's blue: its background, and at its darker edges.
 export const BRAND_COLOR = "#0159b0";

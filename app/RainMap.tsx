@@ -1,42 +1,49 @@
 "use client";
-// Live rainfall radar from Met Éireann (CC BY 4.0) over OpenFreeMap tiles.
-// Met Éireann's API lists the recent radar frames (one every 5 minutes) and
-// serves each as transparent raster tiles; both are CORS-enabled, so the
-// browser uses them directly.
+// Live rainfall radar and rainfall forecast from Met Éireann (CC BY 4.0) over
+// OpenFreeMap tiles. Met Éireann's map API lists the recent radar frames (one
+// every 5 minutes) and the forecast frames (hourly, then 3- and 6-hourly, out
+// to about a week), and serves each as transparent raster tiles. Both are
+// CORS-enabled, so the browser uses them directly.
 
 import { useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { InstallButton } from "./InstallButton";
 
-const RADAR_API = "https://gdal.met.ie/api/maps/radar";
+const MAPS_API = "https://gdal.met.ie/api/maps";
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const IRELAND: [[number, number], [number, number]] = [
   [-10.6, 51.4],
   [-5.4, 55.4],
 ];
-// Panning is limited to a box around Ireland.
 // Room for the scrubber and Install App button below Ireland.
 const IRELAND_PADDING = { top: 20, bottom: 130, left: 20, right: 20 };
+// Panning is limited to a box around Ireland.
 const MAX_BOUNDS: [[number, number], [number, number]] = [
   [-14, 49.5],
   [-2, 57.5],
 ];
 // The extent of Met Éireann's radar composite; tiles outside it are empty.
-const RADAR_BOUNDS: [number, number, number, number] = [-22.5, 48.93, 0, 61.6];
+const RAIN_BOUNDS: [number, number, number, number] = [-22.5, 48.93, 0, 61.6];
 // One credit per line. MapLibre joins separate credits with " | " and drops any
 // contained in another, so both lines go in one entry, with OpenFreeMap's own
 // credit (from its tiles) verbatim so the map doesn't repeat it.
 const BASEMAP_ATTRIBUTION =
   '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>';
 const ATTRIBUTION =
-  '<div>Radar © <a href="https://www.met.ie/" target="_blank" rel="noopener">Met Éireann</a></div>' +
+  '<div>Radar &amp; forecast © <a href="https://www.met.ie/" target="_blank" rel="noopener">Met Éireann</a></div>' +
   `<div>${BASEMAP_ATTRIBUTION}</div>`;
-const RADAR_OPACITY = 0.75;
+const RAIN_OPACITY = 0.75;
 const FRAME_MS = 450;
-const HOLD_MS = 1600; // pause on the newest frame before looping
+const HOLD_MS = 1600; // pause on the last frame of the radar or forecast before looping
+const LOAD_WAIT_MS = 3000; // max wait for the next frame's tiles before moving on
 const REFRESH_MS = 2.5 * 60 * 1000;
+// Forecast frames are only loaded near the scrubber position (radar frames all
+// stay loaded): this many behind and ahead.
+const FORECAST_BEHIND = 2;
+const FORECAST_AHEAD = 4;
 
-type Frame = { time: number; src: string; mod: number };
+type Kind = "radar" | "forecast";
+type Frame = { id: string; kind: Kind; time: number; src: string; mod: number };
 
 // The last map view (centre and zoom), so a return visit starts in the same place.
 const VIEW_KEY = "rainy.view";
@@ -65,10 +72,12 @@ function parseSrc(src: string): number {
   return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : NaN;
 }
 
-async function fetchFrames(): Promise<Array<Frame>> {
-  const res = await fetch(RADAR_API);
+const API_PATH: Record<Kind, string> = { radar: "radar", forecast: "rainfall" };
+
+async function fetchKind(kind: Kind): Promise<Array<Frame>> {
+  const res = await fetch(`${MAPS_API}/${API_PATH[kind]}`);
   if (!res.ok) {
-    throw new Error(`Radar request failed (${res.status})`);
+    throw new Error(`${kind} request failed (${res.status})`);
   }
   type ApiFrame = { src?: string; modifiedTime?: number };
   const data = (await res.json()) as Array<ApiFrame | Array<ApiFrame>>;
@@ -77,14 +86,84 @@ async function fetchFrames(): Promise<Array<Frame>> {
     .flatMap((f) => {
       const time = parseSrc(f?.src ?? "");
       return Number.isFinite(time) && Number.isFinite(f?.modifiedTime)
-        ? [{ time, src: f.src as string, mod: f.modifiedTime as number }]
+        ? [{ id: `${kind}-${f.src}`, kind, time, src: f.src as string, mod: f.modifiedTime as number }]
         : [];
     })
     .sort((a, b) => a.time - b.time);
 }
 
-const layerId = (f: Frame) => `radar-${f.src}`;
-const fmtTime = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+/** Radar frames, then the forecast frames after the newest radar frame. Either alone is fine. */
+async function fetchFrames(): Promise<Array<Frame>> {
+  const [radar, forecast] = await Promise.allSettled([fetchKind("radar"), fetchKind("forecast")]);
+  const past = radar.status === "fulfilled" ? radar.value : [];
+  const future = forecast.status === "fulfilled" ? forecast.value : [];
+  if (radar.status === "rejected" && forecast.status === "rejected") {
+    throw radar.reason;
+  }
+  const latest = past.at(-1)?.time ?? -Infinity;
+  return [...past, ...future.filter((f) => f.time > latest)];
+}
+
+const layerId = (f: Frame) => `frame-${f.id}`;
+
+// Forecast tiles have coastlines drawn in, which would double up the basemap's,
+// so they load through this protocol, which strips them (see stripCoastlines).
+const FORECAST_PROTOCOL = "metforecast";
+// Coastline pixels are near-black; the darkest rain colour (maroon) peaks at 128.
+const COASTLINE_MAX_CHANNEL = 60;
+
+/** Tile URL template for a frame (note Met Éireann's x/y/z order). */
+function tileUrl(f: Frame): string {
+  const url = `${MAPS_API}/${API_PATH[f.kind]}/${f.src}/{x}/{y}/{z}/${f.mod}`;
+  return f.kind === "forecast" ? url.replace(/^https:/, `${FORECAST_PROTOCOL}:`) : url;
+}
+
+/** Fetches a forecast tile and makes its near-black coastline pixels transparent. */
+async function stripCoastlines(
+  params: { url: string },
+  abort: AbortController,
+): Promise<{ data: ArrayBuffer }> {
+  const res = await fetch(params.url.replace(`${FORECAST_PROTOCOL}:`, "https:"), { signal: abort.signal });
+  if (!res.ok) {
+    throw new Error(`Forecast tile failed (${res.status})`);
+  }
+  const bitmap = await createImageBitmap(await res.blob());
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) {
+    throw new Error("No 2D canvas");
+  }
+  ctx.drawImage(bitmap, 0, 0);
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = pixels.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (Math.max(d[i], d[i + 1], d[i + 2]) < COASTLINE_MAX_CHANNEL) {
+      d[i + 3] = 0;
+    }
+  }
+  ctx.putImageData(pixels, 0, 0);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) {
+    throw new Error("Tile encode failed");
+  }
+  return { data: await blob.arrayBuffer() };
+}
+
+/** "15:40" today, "Tue 15:00" on other days. */
+function fmtTime(t: number): string {
+  const d = new Date(t);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { weekday: "short" })} ${time}`;
+}
+
+/** The [first, last] index of the frames of the same kind as frames[i]. */
+function section(frames: Array<Frame>, i: number): [number, number] {
+  const kind = frames[i]?.kind;
+  const first = frames.findIndex((f) => f.kind === kind);
+  return [first, first + frames.filter((f) => f.kind === kind).length - 1];
+}
 
 export function RainMap() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,7 +171,8 @@ export function RainMap() {
   const [mapReady, setMapReady] = useState(false);
   const [frames, setFrames] = useState<Array<Frame>>([]);
   const [error, setError] = useState(false);
-  const [index, setIndex] = useState(0);
+  // The shown frame, by id so it survives the frame list refreshing.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(true);
   // Whether the whole of Ireland is in view (the starting zoom, or further out).
   const [zoomedOut, setZoomedOut] = useState(true);
@@ -105,6 +185,7 @@ export function RainMap() {
       if (cancelled || !containerRef.current) {
         return;
       }
+      lib.addProtocol(FORECAST_PROTOCOL, stripCoastlines);
       const saved = loadView();
       map = new lib.Map({
         container: containerRef.current,
@@ -124,9 +205,9 @@ export function RainMap() {
       map.keyboard.disableRotation();
       map.addControl(new lib.NavigationControl({ showCompass: false }), "top-right");
       map.addControl(new lib.AttributionControl({ compact: true, customAttribution: ATTRIBUTION }), "top-left");
-      // Missing radar tiles just leave gaps; don't log each one.
+      // Missing rain tiles just leave gaps; don't log each one.
       map.on("error", (e) => {
-        if (!(e as { sourceId?: string }).sourceId?.startsWith("radar-")) {
+        if (!(e as { sourceId?: string }).sourceId?.startsWith("frame-")) {
           console.warn("[map]", e.error?.message ?? e);
         }
       });
@@ -180,16 +261,33 @@ export function RainMap() {
     };
   }, []);
 
-  // One raster layer per frame (all loaded, only the current one visible),
-  // under the place labels so town names stay readable.
+  // Start on the newest radar frame (now); if the shown frame drops out of the
+  // list, fall back to that too.
+  const latestRadar = frames.findLastIndex((f) => f.kind === "radar");
+  const found = frames.findIndex((f) => f.id === selectedId);
+  const index = found >= 0 ? found : Math.max(0, latestRadar);
+  const current = frames[index];
+  const [first, last] = section(frames, index);
+
+  // One raster layer per loaded frame, under the place labels so town names
+  // stay readable, with only the current frame visible. All radar frames stay
+  // loaded; forecast frames only near the current one (and the forecast's
+  // first frame, which playback loops back to).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) {
       return;
     }
-    const wanted = new Set(frames.map(layerId));
+    const wanted = new Set(
+      frames
+        .filter(
+          (f, i) =>
+            f.kind === "radar" || i === first || (i >= index - FORECAST_BEHIND && i <= index + FORECAST_AHEAD),
+        )
+        .map(layerId),
+    );
     for (const layer of map.getStyle().layers ?? []) {
-      if (layer.id.startsWith("radar-") && !wanted.has(layer.id)) {
+      if (layer.id.startsWith("frame-") && !wanted.has(layer.id)) {
         map.removeLayer(layer.id);
         map.removeSource(layer.id);
       }
@@ -197,15 +295,14 @@ export function RainMap() {
     const beforeId = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
     for (const f of frames) {
       const id = layerId(f);
-      if (map.getLayer(id)) {
+      if (!wanted.has(id) || map.getLayer(id)) {
         continue;
       }
       map.addSource(id, {
         type: "raster",
-        // Note Met Éireann's x/y/z order.
-        tiles: [`${RADAR_API}/${f.src}/{x}/{y}/{z}/${f.mod}`],
+        tiles: [tileUrl(f)],
         tileSize: 256,
-        bounds: RADAR_BOUNDS,
+        bounds: RAIN_BOUNDS,
         minzoom: 4,
         maxzoom: 10,
       });
@@ -219,39 +316,47 @@ export function RainMap() {
         beforeId,
       );
     }
-    setIndex((i) => (i === 0 ? frames.length - 1 : Math.min(i, frames.length - 1)));
-  }, [frames, mapReady]);
-
-  // Show only the current frame.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) {
-      return;
-    }
     frames.forEach((f, i) => {
       if (map.getLayer(layerId(f))) {
-        map.setPaintProperty(layerId(f), "raster-opacity", i === index ? RADAR_OPACITY : 0);
+        map.setPaintProperty(layerId(f), "raster-opacity", i === index ? RAIN_OPACITY : 0);
       }
     });
-  }, [frames, index, mapReady]);
+  }, [frames, index, first, mapReady]);
 
-  // Playback loop.
+  // Playback: loop through the radar or the forecast, whichever is showing,
+  // holding on its last frame. Waits (briefly) for the next frame's tiles so
+  // it doesn't flash empty frames.
   useEffect(() => {
-    if (!playing || frames.length < 2) {
+    if (!playing || last - first < 1) {
       return;
     }
-    const delay = index === frames.length - 1 ? HOLD_MS : FRAME_MS;
-    const timer = window.setTimeout(() => setIndex((index + 1) % frames.length), delay);
+    const next = index < last ? index + 1 : first;
+    let waited = 0;
+    let timer = 0;
+    const advance = () => {
+      const map = mapRef.current;
+      const id = layerId(frames[next]);
+      if (map?.getSource(id) && !map.isSourceLoaded(id) && waited < LOAD_WAIT_MS) {
+        waited += 150;
+        timer = window.setTimeout(advance, 150);
+        return;
+      }
+      setSelectedId(frames[next].id);
+    };
+    timer = window.setTimeout(advance, index === last ? HOLD_MS : FRAME_MS);
     return () => window.clearTimeout(timer);
-  }, [playing, index, frames]);
+  }, [playing, index, first, last, frames]);
 
-  const current = frames[index];
+  // Where the scrubber track switches from radar to forecast (0-1), if it does.
+  const radarCount = latestRadar + 1;
+  const split =
+    radarCount > 0 && radarCount < frames.length ? (radarCount - 0.5) / (frames.length - 1) : radarCount > 0 ? 1 : 0;
 
   return (
     <>
       <div ref={containerRef} className="map" />
       <InstallButton hidden={!zoomedOut} />
-      {frames.length === 0 && <div className="status">{error ? "Radar unavailable right now" : "Loading radar…"}</div>}
+      {frames.length === 0 && <div className="status">{error ? "Rain data unavailable right now" : "Loading radar…"}</div>}
       {current && (
         <div className="scrubber">
           <button onClick={() => setPlaying((p) => !p)} aria-label={playing ? "Pause" : "Play"}>
@@ -264,13 +369,18 @@ export function RainMap() {
             min={0}
             max={frames.length - 1}
             value={index}
-            aria-label="Radar time"
+            aria-label="Rain time"
+            aria-valuetext={`${current.kind === "forecast" ? "Forecast" : "Radar"}, ${fmtTime(current.time)}`}
+            style={{ "--split": split } as React.CSSProperties}
             onChange={(e) => {
               setPlaying(false);
-              setIndex(Number(e.target.value));
+              setSelectedId(frames[Number(e.target.value)].id);
             }}
           />
-          <time>{fmtTime(current.time)}</time>
+          <div className="when">
+            <span className={`kind kind-${current.kind}`}>{current.kind === "forecast" ? "Forecast" : "Radar"}</span>
+            <time>{fmtTime(current.time)}</time>
+          </div>
         </div>
       )}
     </>

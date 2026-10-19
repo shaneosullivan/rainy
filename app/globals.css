@@ -70,16 +70,75 @@ body {
 }
 
 .scrubber input {
+  /* Track: radar (past) in sky blue, forecast in lavender, switching at --split
+     (0-1 along the thumb's travel, which is inset by the thumb's radius). */
+  --thumb: 18px;
+  --at: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--split, 1));
   flex: 1;
   min-width: 0;
-  accent-color: #7dd3fc;
+  height: 6px;
+  margin: 0;
+  border-radius: 3px;
+  background: linear-gradient(to right, #7dd3fc 0 var(--at), #c4b5fd var(--at) 100%);
+  appearance: none;
+  -webkit-appearance: none;
   cursor: pointer;
 }
 
-.scrubber time {
+.scrubber input::-webkit-slider-thumb {
+  width: var(--thumb);
+  height: var(--thumb);
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.scrubber input::-moz-range-thumb {
+  width: var(--thumb);
+  height: var(--thumb);
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.scrubber input:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+}
+
+/* Radar/Forecast label above the frame time. */
+.scrubber .when {
   flex: none;
+  min-width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+}
+
+.scrubber .kind {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.kind-radar {
+  color: #7dd3fc;
+}
+
+.kind-forecast {
+  color: #c4b5fd;
+}
+
+.scrubber time {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .install {
