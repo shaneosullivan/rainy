@@ -12,22 +12,71 @@ const ROOT = path.resolve(import.meta.dir, "..");
 const SOURCE = path.join(ROOT, "app/assets/logo_source.jpg");
 // The logo's background blue at its edges, used to pad the maskable icon.
 const EDGE_BLUE = { r: 1, g: 78, b: 160 };
-// Square around the artwork (Ireland + drop), as fractions of the source. The
-// artwork spans roughly x 0.17-0.81, y 0.11-0.85; tiny icons crop to it so it
-// stays legible.
-const TIGHT_CENTER = [0.489, 0.477] as const;
-const TIGHT_SIZE = 0.8;
 const FAVICON_SIZES = [16, 32, 48];
+// Resolution the sea is cut out at before favicons are downscaled from it.
+const CUTOUT_PX = 1024;
 
 const resized = (img: Sharp, px: number) => img.clone().resize(px, px, { kernel: "lanczos3" });
 
-/** The source cropped to the square around the artwork. */
-async function tight(img: Sharp): Promise<Sharp> {
-  const { width = 0 } = await img.metadata();
-  const size = Math.round(TIGHT_SIZE * width);
-  const left = Math.round(TIGHT_CENTER[0] * width - size / 2);
-  const top = Math.round(TIGHT_CENTER[1] * width - size / 2);
-  return sharp(await img.clone().extract({ left, top, width: size, height: size }).toBuffer());
+/** Sea blue: blue clearly above red and green. Ireland's white outline isn't. */
+const isSea = (r: number, g: number, b: number) => b > 60 && b - r > 60 && b - g > 25;
+
+/**
+ * The artwork (Ireland + drop) with the sea made transparent, cropped square
+ * to it so it fills small favicons. The sea is flood-filled from the image
+ * edges, so the blue drop inside Ireland's white outline is untouched.
+ */
+async function cutout(img: Sharp): Promise<Sharp> {
+  const n = CUTOUT_PX;
+  const rgb = await resized(img, n).removeAlpha().raw().toBuffer();
+  const sea = new Uint8Array(n * n);
+  const stack: Array<number> = [];
+  const visit = (i: number) => {
+    if (!sea[i] && isSea(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2])) {
+      sea[i] = 1;
+      stack.push(i);
+    }
+  };
+  for (let k = 0; k < n; k++) {
+    visit(k); // top row
+    visit((n - 1) * n + k); // bottom row
+    visit(k * n); // left column
+    visit(k * n + n - 1); // right column
+  }
+  while (stack.length > 0) {
+    const i = stack.pop() as number;
+    const x = i % n;
+    if (x > 0) visit(i - 1);
+    if (x < n - 1) visit(i + 1);
+    if (i >= n) visit(i - n);
+    if (i < n * (n - 1)) visit(i + n);
+  }
+
+  // Square crop around what's left, with a sliver of margin.
+  let [minX, minY, maxX, maxY] = [n, n, 0, 0];
+  for (let i = 0; i < n * n; i++) {
+    if (!sea[i]) {
+      const x = i % n;
+      const y = (i - x) / n;
+      [minX, minY, maxX, maxY] = [Math.min(minX, x), Math.min(minY, y), Math.max(maxX, x), Math.max(maxY, y)];
+    }
+  }
+  const side = Math.min(n, Math.ceil(Math.max(maxX - minX, maxY - minY) * 1.02) + 1);
+  const left = Math.max(0, Math.min(n - side, Math.round((minX + maxX - side) / 2)));
+  const top = Math.max(0, Math.min(n - side, Math.round((minY + maxY - side) / 2)));
+
+  // Alpha from the sea mask, softened slightly so edges anti-alias.
+  const alpha = await sharp(Buffer.from(sea.map((v) => (v ? 0 : 255))), { raw: { width: n, height: n, channels: 1 } })
+    .blur(1)
+    .extractChannel(0) // blur outputs sRGB; keep one channel
+    .raw()
+    .toBuffer();
+  // Two steps: sharp would otherwise crop before joining the alpha channel.
+  const rgba = await sharp(rgb, { raw: { width: n, height: n, channels: 3 } })
+    .joinChannel(alpha, { raw: { width: n, height: n, channels: 1 } })
+    .png()
+    .toBuffer();
+  return sharp(await sharp(rgba).extract({ left, top, width: side, height: side }).png().toBuffer());
 }
 
 /** The logo shrunk into the maskable safe zone, feathered into a padded background. */
@@ -81,14 +130,14 @@ async function ico(img: Sharp, sizes: Array<number>): Promise<Buffer> {
 
 async function main() {
   const src = sharp(SOURCE).removeAlpha();
-  const small = await tight(src);
+  const favicon = await cutout(src);
 
   const outputs: Record<string, Sharp> = {
     "public/apple-touch-icon.png": resized(src, 180),
     "public/icons/icon-192.png": resized(src, 192),
     "public/icons/icon-512.png": resized(src, 512),
     "public/icons/maskable-512.png": await maskable(src, 512),
-    "public/icons/favicon-192.png": resized(small, 192),
+    "public/icons/favicon-192.png": resized(favicon, 192),
   };
   for (const [rel, img] of Object.entries(outputs)) {
     const file = path.join(ROOT, rel);
@@ -97,7 +146,7 @@ async function main() {
     console.log(`wrote ${rel}`);
   }
 
-  await Bun.write(path.join(ROOT, "public/favicon.ico"), await ico(small, FAVICON_SIZES));
+  await Bun.write(path.join(ROOT, "public/favicon.ico"), await ico(favicon, FAVICON_SIZES));
   console.log("wrote public/favicon.ico");
 }
 

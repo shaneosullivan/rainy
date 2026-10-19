@@ -37,7 +37,7 @@ app/
   opengraph-image.tsx      Social preview image, built from the logo
   manifest.ts, robots.ts, sitemap.ts
 public/
-  favicon.ico              Favicon (generated)
+  favicon.ico              Favicon, sea cut out to transparent (generated)
   apple-touch-icon.png     iOS home screen icon (generated)
   icons/                   PWA icons, a maskable one and a PNG favicon (generated)
   sw.js                    Service worker
