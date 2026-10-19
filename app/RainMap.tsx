@@ -36,14 +36,24 @@ const RAIN_OPACITY = 0.75;
 const FRAME_MS = 450;
 const HOLD_MS = 1600; // pause on the last frame of the radar or forecast before looping
 const LOAD_WAIT_MS = 3000; // max wait for the next frame's tiles before moving on
-const REFRESH_MS = 2.5 * 60 * 1000;
-// Focus and visibility events often fire together; don't refetch more often than this.
-const MIN_REFRESH_GAP_MS = 10 * 1000;
+// Met Éireann publishes a radar frame every 5 minutes, 4-5 minutes after its
+// timestamp, so each lands just before the next 5-minute mark. Refresh just
+// after each mark, and retry a few times if the new frame isn't out yet.
+const FRAME_INTERVAL_MS = 5 * 60 * 1000;
+const AFTER_MARK_MS = 15 * 1000;
+const RETRY_MS = 30 * 1000;
+const MAX_RETRIES = 4;
+// Focus and visibility events can fire often (and together); refetch on them at
+// most this often. The API's responses are cacheable for 60s, so it can't be
+// fresher anyway. Scheduled refreshes at each 5-minute mark aren't limited.
+const MIN_REFRESH_GAP_MS = 60 * 1000;
 const FETCH_TIMEOUT_MS = 15 * 1000;
 // Forecast frames are only loaded near the scrubber position (radar frames all
 // stay loaded): this many behind and ahead.
 const FORECAST_BEHIND = 2;
 const FORECAST_AHEAD = 4;
+// Resolution of the scrubber's range input, which snaps to the nearest frame.
+const SLIDER_STEPS = 1000;
 
 type Kind = "radar" | "forecast";
 type Frame = { id: string; kind: Kind; time: number; src: string; mod: number };
@@ -254,11 +264,14 @@ export function RainMap() {
   const selectedRef = useRef(selectedId);
   selectedRef.current = selectedId;
 
-  // Fetch the frame list now, every few minutes while visible, and whenever the
-  // page is focused, shown again or back online, so it never drifts out of date.
+  // Fetch the frame list now, just after each 5-minute mark (when Met Éireann
+  // publishes), and whenever the page is focused, shown again or back online,
+  // so a map left open never drifts out of date.
   useEffect(() => {
     let inFlight = false;
     let lastLoad = 0;
+    let newestRadar = -Infinity; // time of the newest radar frame loaded
+    let stopped = false;
     const load = async (force = false) => {
       if (inFlight || (!force && Date.now() - lastLoad < MIN_REFRESH_GAP_MS)) {
         return;
@@ -267,16 +280,17 @@ export function RainMap() {
       lastLoad = Date.now();
       try {
         const next = await fetchFrames();
-        if (next.length > 0) {
-          // If the newest radar frame ("now") was showing, move on to the new newest.
-          const prev = framesRef.current;
-          const prevLatest = prev.findLast((f) => f.kind === "radar")?.id;
-          if (prevLatest && selectedRef.current === prevLatest) {
-            setSelectedId(null);
-          }
-          setFrames(next);
-          setError(false);
+        if (stopped || next.length === 0) {
+          return;
         }
+        // If the newest radar frame ("now") was showing, move on to the new newest.
+        const prevLatest = framesRef.current.findLast((f) => f.kind === "radar")?.id;
+        if (prevLatest && selectedRef.current === prevLatest) {
+          setSelectedId(null);
+        }
+        newestRadar = next.findLast((f) => f.kind === "radar")?.time ?? newestRadar;
+        setFrames(next);
+        setError(false);
       } catch {
         setError(true);
       } finally {
@@ -288,14 +302,39 @@ export function RainMap() {
         load();
       }
     };
+    // Just after each 5-minute mark, expecting the frame stamped 5 minutes
+    // before it; retry every RETRY_MS until that frame is in (up to
+    // MAX_RETRIES), then wait for the next mark. Hidden pages skip the fetch
+    // (they refresh when shown again) but keep the schedule.
+    let timer = 0;
+    const scheduleMark = () => {
+      const now = Date.now();
+      const mark = Math.floor((now - AFTER_MARK_MS) / FRAME_INTERVAL_MS) * FRAME_INTERVAL_MS + FRAME_INTERVAL_MS;
+      timer = window.setTimeout(() => tick(mark, 0), mark + AFTER_MARK_MS - now);
+    };
+    const tick = async (mark: number, retry: number) => {
+      const visible = document.visibilityState === "visible";
+      if (visible && newestRadar < mark - FRAME_INTERVAL_MS) {
+        await load(true);
+      }
+      if (stopped) {
+        return;
+      }
+      if (visible && newestRadar < mark - FRAME_INTERVAL_MS && retry < MAX_RETRIES) {
+        timer = window.setTimeout(() => tick(mark, retry + 1), RETRY_MS);
+      } else {
+        scheduleMark();
+      }
+    };
     load(true);
-    const id = window.setInterval(refresh, REFRESH_MS);
+    scheduleMark();
     window.addEventListener("focus", refresh);
     window.addEventListener("online", refresh);
     window.addEventListener("pageshow", refresh); // includes back/forward cache restores
     document.addEventListener("visibilitychange", refresh);
     return () => {
-      window.clearInterval(id);
+      stopped = true;
+      window.clearTimeout(timer);
       window.removeEventListener("focus", refresh);
       window.removeEventListener("online", refresh);
       window.removeEventListener("pageshow", refresh);
@@ -391,8 +430,34 @@ export function RainMap() {
 
   // Where the scrubber track switches from radar to forecast (0-1), if it does.
   const radarCount = latestRadar + 1;
-  const split =
-    radarCount > 0 && radarCount < frames.length ? (radarCount - 0.5) / (frames.length - 1) : radarCount > 0 ? 1 : 0;
+  const hasBoth = radarCount > 0 && radarCount < frames.length;
+  // With both, the past and the forecast get half the track each, "now" (the
+  // newest radar frame) in the middle, whatever their frame counts.
+  const split = hasBoth ? 0.5 : radarCount > 0 ? 1 : 0;
+  const forecastCount = frames.length - radarCount;
+  /** Position (0-1) of frame i along the track. */
+  const position = (i: number): number => {
+    if (!hasBoth) {
+      return frames.length > 1 ? i / (frames.length - 1) : 0;
+    }
+    return i < radarCount
+      ? 0.5 * (radarCount > 1 ? i / (radarCount - 1) : 1)
+      : 0.5 + (0.5 * (i - radarCount + 1)) / forecastCount;
+  };
+  /** The frame nearest a track position. */
+  const nearestFrame = (p: number): number => {
+    let best = 0;
+    for (let i = 1; i < frames.length; i++) {
+      if (Math.abs(position(i) - p) < Math.abs(position(best) - p)) {
+        best = i;
+      }
+    }
+    return best;
+  };
+  const seek = (i: number) => {
+    setPlaying(false);
+    setSelectedId(frames[Math.max(0, Math.min(frames.length - 1, i))].id);
+  };
 
   return (
     <>
@@ -406,19 +471,52 @@ export function RainMap() {
               {playing ? <path d="M7 5h4v14H7zM13 5h4v14h-4z" /> : <path d="M8 5v14l11-7z" />}
             </svg>
           </button>
-          <input
-            type="range"
-            min={0}
-            max={frames.length - 1}
-            value={index}
-            aria-label="Rain time"
-            aria-valuetext={`${current.kind === "forecast" ? "Forecast" : "Radar"}, ${fmtTime(current.time)}`}
-            style={{ "--split": split } as React.CSSProperties}
-            onChange={(e) => {
-              setPlaying(false);
-              setSelectedId(frames[Number(e.target.value)].id);
-            }}
-          />
+          {/* Layers: the coloured track, the "Now" marker, then the slider (transparent track) on top. */}
+          <div className="track" style={{ "--split": split } as React.CSSProperties}>
+            <div className="track-bar" />
+            {hasBoth && (
+              <>
+                <span className="edge-label edge-past" aria-hidden>
+                  Past
+                </span>
+                <span className="edge-label edge-future" aria-hidden>
+                  Future
+                </span>
+              </>
+            )}
+            {hasBoth && (
+              <>
+                <div className="now-line" />
+                <span className="now-label" aria-hidden>
+                  Now
+                </span>
+              </>
+            )}
+            {/* A fine-grained range (frames aren't evenly spaced) that snaps to the
+                nearest frame; keys step one frame at a time. */}
+            <input
+              type="range"
+              min={0}
+              max={SLIDER_STEPS}
+              value={Math.round(position(index) * SLIDER_STEPS)}
+              aria-label="Rain time"
+              aria-valuetext={`${current.kind === "forecast" ? "Forecast" : "Radar"}, ${fmtTime(current.time)}`}
+              onChange={(e) => seek(nearestFrame(Number(e.target.value) / SLIDER_STEPS))}
+              onKeyDown={(e) => {
+                const step: Record<string, number> = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -6, PageUp: 6 };
+                if (e.key in step) {
+                  seek(index + step[e.key]);
+                } else if (e.key === "Home") {
+                  seek(0);
+                } else if (e.key === "End") {
+                  seek(frames.length - 1);
+                } else {
+                  return;
+                }
+                e.preventDefault();
+              }}
+            />
+          </div>
           <div className="when">
             <span className={`kind kind-${current.kind}`}>{current.kind === "forecast" ? "Forecast" : "Radar"}</span>
             <time>{fmtTime(current.time)}</time>

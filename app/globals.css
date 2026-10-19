@@ -69,17 +69,77 @@ body {
   cursor: pointer;
 }
 
-.scrubber input {
-  /* Track: radar (past) in sky blue, forecast in lavender, switching at --split
-     (0-1 along the thumb's travel, which is inset by the thumb's radius). */
+.scrubber .track {
+  /* --split (0-1) is where radar turns to forecast, along the thumb's travel,
+     which is inset by the thumb's radius at each end. */
   --thumb: 18px;
   --at: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--split, 1));
+  position: relative;
   flex: 1;
   min-width: 0;
+  height: 28px;
+}
+
+/* Radar (past) in sky blue, forecast in lavender. */
+.scrubber .track-bar {
+  position: absolute;
+  inset: 50% 0 auto;
   height: 6px;
-  margin: 0;
+  transform: translateY(-50%);
   border-radius: 3px;
   background: linear-gradient(to right, #7dd3fc 0 var(--at), #c4b5fd var(--at) 100%);
+}
+
+/* The past/forecast boundary, with "Now" beside its lower half. */
+.scrubber .now-line {
+  position: absolute;
+  left: var(--at);
+  top: 50%;
+  width: 2px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  background: #fff;
+  pointer-events: none;
+}
+
+.scrubber .now-label {
+  position: absolute;
+  left: calc(var(--at) + 1px + 8px); /* 8px clear of the 2px line */
+  top: calc(50% + 8px);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+  pointer-events: none;
+}
+
+/* "Past" and "Future" below the bar at each end. */
+.scrubber .edge-label {
+  position: absolute;
+  top: calc(50% + 8px);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+}
+
+.scrubber .edge-past {
+  left: 0;
+}
+
+.scrubber .edge-future {
+  right: 0;
+}
+
+.scrubber input {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
   appearance: none;
   -webkit-appearance: none;
   cursor: pointer;
