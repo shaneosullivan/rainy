@@ -37,6 +37,9 @@ const FRAME_MS = 450;
 const HOLD_MS = 1600; // pause on the last frame of the radar or forecast before looping
 const LOAD_WAIT_MS = 3000; // max wait for the next frame's tiles before moving on
 const REFRESH_MS = 2.5 * 60 * 1000;
+// Focus and visibility events often fire together; don't refetch more often than this.
+const MIN_REFRESH_GAP_MS = 10 * 1000;
+const FETCH_TIMEOUT_MS = 15 * 1000;
 // Forecast frames are only loaded near the scrubber position (radar frames all
 // stay loaded): this many behind and ahead.
 const FORECAST_BEHIND = 2;
@@ -75,7 +78,12 @@ function parseSrc(src: string): number {
 const API_PATH: Record<Kind, string> = { radar: "radar", forecast: "rainfall" };
 
 async function fetchKind(kind: Kind): Promise<Array<Frame>> {
-  const res = await fetch(`${MAPS_API}/${API_PATH[kind]}`);
+  // no-cache: revalidate rather than reuse the browser's copy (the API allows 60s).
+  // The timeout stops a hung request from blocking later refreshes.
+  const res = await fetch(`${MAPS_API}/${API_PATH[kind]}`, {
+    cache: "no-cache",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(`${kind} request failed (${res.status})`);
   }
@@ -240,24 +248,58 @@ export function RainMap() {
     };
   }, []);
 
-  // Fetch the frame list now, every few minutes, and when the tab is refocused.
+  // The latest frames and selection, for the refresh below (which outlives renders).
+  const framesRef = useRef(frames);
+  framesRef.current = frames;
+  const selectedRef = useRef(selectedId);
+  selectedRef.current = selectedId;
+
+  // Fetch the frame list now, every few minutes while visible, and whenever the
+  // page is focused, shown again or back online, so it never drifts out of date.
   useEffect(() => {
-    const load = () =>
-      fetchFrames()
-        .then((f) => {
-          if (f.length > 0) {
-            setFrames(f);
-            setError(false);
+    let inFlight = false;
+    let lastLoad = 0;
+    const load = async (force = false) => {
+      if (inFlight || (!force && Date.now() - lastLoad < MIN_REFRESH_GAP_MS)) {
+        return;
+      }
+      inFlight = true;
+      lastLoad = Date.now();
+      try {
+        const next = await fetchFrames();
+        if (next.length > 0) {
+          // If the newest radar frame ("now") was showing, move on to the new newest.
+          const prev = framesRef.current;
+          const prevLatest = prev.findLast((f) => f.kind === "radar")?.id;
+          if (prevLatest && selectedRef.current === prevLatest) {
+            setSelectedId(null);
           }
-        })
-        .catch(() => setError(true));
-    load();
-    const id = window.setInterval(load, REFRESH_MS);
-    const onVisible = () => document.visibilityState === "visible" && load();
-    document.addEventListener("visibilitychange", onVisible);
+          setFrames(next);
+          setError(false);
+        }
+      } catch {
+        setError(true);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const refresh = () => {
+      if (document.visibilityState === "visible") {
+        load();
+      }
+    };
+    load(true);
+    const id = window.setInterval(refresh, REFRESH_MS);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    window.addEventListener("pageshow", refresh); // includes back/forward cache restores
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
+      window.removeEventListener("pageshow", refresh);
+      document.removeEventListener("visibilitychange", refresh);
     };
   }, []);
 
