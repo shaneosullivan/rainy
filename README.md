@@ -18,7 +18,8 @@ A deliberately tiny web app: a full-screen map of Ireland with Met Éireann's ra
 Everything runs in the browser. There's no server-side data fetching.
 
 - **Radar and forecast:** Met Éireann's map API lists the recent radar frames at `https://gdal.met.ie/api/maps/radar` and the rainfall forecast frames at `https://gdal.met.ie/api/maps/rainfall`. Each frame is served as transparent raster map tiles. Both are CORS-enabled, so the page fetches them directly. Frames are [MapLibre](https://maplibre.org/) raster layers with only the current one visible. All radar frames stay loaded; forecast frames are loaded only near the scrubber position. Met Éireann publishes a radar frame every 5 minutes, about 4½ minutes after its timestamp, so the frame lists refresh 15 seconds after each 5-minute mark, retrying every 30 seconds (up to 4 times) until that mark's frame is in. They also refresh whenever the page is focused, shown again or back online (at most once a minute), always revalidating rather than using the browser's cached copy. If you were on the newest radar frame, you move on to the new newest one.
-- **Forecast coastlines:** the forecast tiles have coastlines drawn in, which would double up the basemap's. They load through a custom MapLibre protocol that makes those near-black pixels transparent; rain colours are all much brighter, so they're untouched.
+- **Forecast coastlines:** the forecast tiles have coastlines drawn in, which would double up the basemap's. They load through a custom MapLibre protocol that removes them ([`app/coastline.ts`](app/coastline.ts)): it finds the line (near-black cores and their soft edges, colours too dark to be rain, and rain evenly darkened by the line) and fills each of its pixels from the nearest clean rain pixel, so the rain has no gap where the coast was.
+- **Forecast zoom:** forecast tiles only have data up to zoom 9 (radar goes further), so beyond that MapLibre upscales the zoom-9 tiles rather than loading blank ones.
 - **Basemap:** [OpenFreeMap](https://openfreemap.org/)'s free "positron" vector style. It needs no key, and its muted colours let the radar stand out.
 - **Saved view:** the map's centre and zoom are saved to `localStorage` after each move and restored on the next visit.
 - **PWA:** a web app manifest, icons generated from the logo, and a small service worker ([`public/sw.js`](public/sw.js)). The service worker uses network-first for pages, cache-first for build assets and basemap tiles, and never caches rain data. It registers in production builds only.
@@ -34,6 +35,7 @@ app/
   InstallButton.tsx    "Install App" button (add-to-homescreen)
   ServiceWorker.tsx    Registers public/sw.js in production
   UpdateCheck.tsx      Reloads with fresh caches when a newer build is deployed
+  coastline.ts         Removes the coastline drawn into forecast tiles
   layout.tsx           Metadata, viewport, structured data
   page.tsx             The page (map + hidden heading for crawlers)
   site.ts              Site URL, name, description, colours

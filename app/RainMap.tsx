@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
+import { removeCoastline } from "./coastline";
 import { InstallButton } from "./InstallButton";
 
 const MAPS_API = "https://gdal.met.ie/api/maps";
@@ -86,6 +87,9 @@ function parseSrc(src: string): number {
 }
 
 const API_PATH: Record<Kind, string> = { radar: "radar", forecast: "rainfall" };
+// The deepest zoom each layer has tiles for: forecast tiles are blank beyond
+// zoom 9 (radar goes to 11). Past it, MapLibre upscales the deepest tiles.
+const MAX_TILE_ZOOM: Record<Kind, number> = { radar: 10, forecast: 9 };
 
 async function fetchKind(kind: Kind): Promise<Array<Frame>> {
   // no-cache: revalidate rather than reuse the browser's copy (the API allows 60s).
@@ -125,10 +129,8 @@ async function fetchFrames(): Promise<Array<Frame>> {
 const layerId = (f: Frame) => `frame-${f.id}`;
 
 // Forecast tiles have coastlines drawn in, which would double up the basemap's,
-// so they load through this protocol, which strips them (see stripCoastlines).
+// so they load through this protocol, which removes them (see app/coastline.ts).
 const FORECAST_PROTOCOL = "metforecast";
-// Coastline pixels are near-black; the darkest rain colour (maroon) peaks at 128.
-const COASTLINE_MAX_CHANNEL = 60;
 
 /** Tile URL template for a frame (note Met Éireann's x/y/z order). */
 function tileUrl(f: Frame): string {
@@ -136,7 +138,7 @@ function tileUrl(f: Frame): string {
   return f.kind === "forecast" ? url.replace(/^https:/, `${FORECAST_PROTOCOL}:`) : url;
 }
 
-/** Fetches a forecast tile and makes its near-black coastline pixels transparent. */
+/** Fetches a forecast tile and removes its baked-in coastline. */
 async function stripCoastlines(
   params: { url: string },
   abort: AbortController,
@@ -155,12 +157,7 @@ async function stripCoastlines(
   }
   ctx.drawImage(bitmap, 0, 0);
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const d = pixels.data;
-  for (let i = 0; i < d.length; i += 4) {
-    if (Math.max(d[i], d[i + 1], d[i + 2]) < COASTLINE_MAX_CHANNEL) {
-      d[i + 3] = 0;
-    }
-  }
+  removeCoastline(pixels.data, canvas.width, canvas.height);
   ctx.putImageData(pixels, 0, 0);
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) {
@@ -385,7 +382,7 @@ export function RainMap() {
         tileSize: 256,
         bounds: RAIN_BOUNDS,
         minzoom: 4,
-        maxzoom: 10,
+        maxzoom: MAX_TILE_ZOOM[f.kind],
       });
       map.addLayer(
         {
