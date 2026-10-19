@@ -38,7 +38,8 @@ export const metadata: Metadata = {
       { url: "/favicon.ico", sizes: "16x16 32x32 48x48" },
       { url: "/icons/favicon-192.png", type: "image/png", sizes: "192x192" },
     ],
-    apple: { url: "/apple-touch-icon.png", sizes: "180x180" },
+    // ?v= busts browsers still caching the pre-logo icon at this URL.
+    apple: { url: "/apple-touch-icon.png?v=2", sizes: "180x180" },
   },
   formatDetection: { telephone: false },
   category: "weather",

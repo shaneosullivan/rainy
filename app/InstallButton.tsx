@@ -78,7 +78,8 @@ export function InstallButton() {
     }
     window.AddToHomeScreenInstance ??= window.AddToHomeScreen({
       appName: SITE_NAME,
-      appIconUrl: "/apple-touch-icon.png",
+      // Not /apple-touch-icon.png: browsers may still hold an older icon cached there.
+      appIconUrl: "/icons/icon-192.png",
       assetUrl: `${LIB}/assets/img/`,
       maxModalDisplayCount: -1,
     });

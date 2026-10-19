@@ -42,15 +42,15 @@ public/
   icons/                   PWA icons, a maskable one and a PNG favicon (generated)
   sw.js                    Service worker
 scripts/
-  make-icons.py            Generates the icons from the logo
+  make-icons.ts            Generates the icons from the logo (bun run icons)
 ```
 
 ### Icons
 
-All icons come from `app/assets/logo_source.jpg`. After changing the logo, regenerate them (needs [Pillow](https://pillow.readthedocs.io/)):
+All icons come from `app/assets/logo_source.jpg`. After changing the logo, regenerate them:
 
 ```bash
-python3 scripts/make-icons.py
+bun run icons
 ```
 
 ## Development
