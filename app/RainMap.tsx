@@ -31,6 +31,8 @@ const RAIN_BOUNDS: [number, number, number, number] = [-22.5, 48.93, 0, 61.6];
 const BASEMAP_ATTRIBUTION =
   '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>';
 const ATTRIBUTION =
+  '<div class="built-by"><img src="/brand/chofter-mark.png" width="14" height="14" alt="" />' +
+  'Built by <a href="https://apps.chofter.com" target="_blank" rel="noopener">Chofter Apps</a></div>' +
   '<div>Radar &amp; forecast © <a href="https://www.met.ie/" target="_blank" rel="noopener">Met Éireann</a></div>' +
   `<div>${BASEMAP_ATTRIBUTION}</div>`;
 const RAIN_OPACITY = 0.75;

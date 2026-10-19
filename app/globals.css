@@ -26,6 +26,19 @@ body {
   right: env(safe-area-inset-right);
 }
 
+/* "Built by Chofter Apps" line in the attribution, with the Chofter mark. */
+.built-by {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.built-by img {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
 .status {
   position: fixed;
   top: 50%;
