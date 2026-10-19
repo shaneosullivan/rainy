@@ -94,10 +94,10 @@ body {
   padding: 8px 16px;
   border: 0;
   border-radius: 999px;
-  background: #0284c7;
+  background: #0159b0;
   color: #fff;
   font: 600 14px system-ui, -apple-system, sans-serif;
-  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
+  box-shadow: 0 4px 14px rgba(1, 89, 176, 0.4);
   cursor: pointer;
   animation: install-in 400ms ease-out both;
 }
@@ -127,7 +127,7 @@ body {
 }
 
 .install:hover {
-  background: #0369a1;
+  background: #014ea0;
 }
 
 .visually-hidden {

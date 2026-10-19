@@ -19,7 +19,7 @@ Everything runs in the browser. There's no server-side data fetching.
 - **Radar:** Met Éireann's map API at `https://gdal.met.ie/api/maps/radar` lists the recent radar frames. Each frame is served as transparent raster map tiles. Both are CORS-enabled, so the page fetches them directly. Every frame is added as a [MapLibre](https://maplibre.org/) raster layer, and only the current one is visible, so playback is smooth once the tiles have loaded. The frame list refreshes every 2.5 minutes and whenever the tab comes back into focus.
 - **Basemap:** [OpenFreeMap](https://openfreemap.org/)'s free "positron" vector style. It needs no key, and its muted colours let the radar stand out.
 - **Saved view:** the map's centre and zoom are saved to `localStorage` after each move and restored on the next visit.
-- **PWA:** a web app manifest, icons generated with `next/og`, and a small service worker ([`public/sw.js`](public/sw.js)). The service worker uses network-first for pages, cache-first for build assets and basemap tiles, and never caches radar. It registers in production builds only.
+- **PWA:** a web app manifest, icons generated from the logo, and a small service worker ([`public/sw.js`](public/sw.js)). The service worker uses network-first for pages, cache-first for build assets and basemap tiles, and never caches radar. It registers in production builds only.
 - **Install button:** [philfung/add-to-homescreen](https://github.com/philfung/add-to-homescreen), loaded from jsDelivr in its English-only build.
 - **SEO:** metadata, Open Graph/Twitter tags, a generated social preview image, `robots.txt`, `sitemap.xml` and schema.org `WebApplication` structured data.
 
@@ -33,12 +33,24 @@ app/
   layout.tsx           Metadata, viewport, structured data
   page.tsx             The page (map + hidden heading for crawlers)
   site.ts              Site URL, name, description, colours
-  brand.tsx            Shared app icon artwork for generated PNGs
-  icon.svg             Favicon
-  apple-touch-icon.png/, icons/[size]/   Generated PNG icons
-  manifest.ts, robots.ts, sitemap.ts, opengraph-image.tsx
+  assets/logo_source.jpg   The logo (4096×4096 source for every icon)
+  opengraph-image.tsx      Social preview image, built from the logo
+  manifest.ts, robots.ts, sitemap.ts
 public/
-  sw.js                Service worker
+  favicon.ico              Favicon (generated)
+  apple-touch-icon.png     iOS home screen icon (generated)
+  icons/                   PWA icons, a maskable one and a PNG favicon (generated)
+  sw.js                    Service worker
+scripts/
+  make-icons.py            Generates the icons from the logo
+```
+
+### Icons
+
+All icons come from `app/assets/logo_source.jpg`. After changing the logo, regenerate them (needs [Pillow](https://pillow.readthedocs.io/)):
+
+```bash
+python3 scripts/make-icons.py
 ```
 
 ## Development

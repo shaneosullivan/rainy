@@ -1,6 +1,6 @@
 // rainy.ie service worker: makes the app installable and keeps the page and
 // basemap working offline. Radar frames are live data, so they're never cached.
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL = `shell-${VERSION}`;
 const TILES = `tiles-${VERSION}`;
 const MAX_TILES = 600;
@@ -9,7 +9,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(SHELL)
-      .then((c) => c.addAll(["/", "/manifest.webmanifest", "/icons/192"]))
+      .then((c) => c.addAll(["/", "/manifest.webmanifest", "/icons/icon-192.png"]))
       .then(() => self.skipWaiting()),
   );
 });
