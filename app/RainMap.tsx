@@ -20,6 +20,14 @@ const MAX_BOUNDS: [[number, number], [number, number]] = [
 ];
 // The extent of Met Éireann's radar composite; tiles outside it are empty.
 const RADAR_BOUNDS: [number, number, number, number] = [-22.5, 48.93, 0, 61.6];
+// One credit per line. MapLibre joins separate credits with " | " and drops any
+// contained in another, so both lines go in one entry, with OpenFreeMap's own
+// credit (from its tiles) verbatim so the map doesn't repeat it.
+const BASEMAP_ATTRIBUTION =
+  '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>';
+const ATTRIBUTION =
+  '<div>Radar © <a href="https://www.met.ie/" target="_blank" rel="noopener">Met Éireann</a></div>' +
+  `<div>${BASEMAP_ATTRIBUTION}</div>`;
 const RADAR_OPACITY = 0.75;
 const FRAME_MS = 450;
 const HOLD_MS = 1600; // pause on the newest frame before looping
@@ -110,13 +118,7 @@ export function RainMap() {
       map.touchZoomRotate.disableRotation();
       map.keyboard.disableRotation();
       map.addControl(new lib.NavigationControl({ showCompass: false }), "top-right");
-      map.addControl(
-        new lib.AttributionControl({
-          compact: true,
-          customAttribution: 'Radar © <a href="https://www.met.ie/" target="_blank" rel="noopener">Met Éireann</a>',
-        }),
-        "top-left",
-      );
+      map.addControl(new lib.AttributionControl({ compact: true, customAttribution: ATTRIBUTION }), "top-left");
       // Missing radar tiles just leave gaps; don't log each one.
       map.on("error", (e) => {
         if (!(e as { sourceId?: string }).sourceId?.startsWith("radar-")) {
