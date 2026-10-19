@@ -7,7 +7,7 @@
   "homepage": "https://rainy.ie",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "bun scripts/write-build-id.ts && next build",
     "start": "next start",
     "icons": "bun scripts/make-icons.ts"
   },

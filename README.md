@@ -22,6 +22,7 @@ Everything runs in the browser. There's no server-side data fetching.
 - **Basemap:** [OpenFreeMap](https://openfreemap.org/)'s free "positron" vector style. It needs no key, and its muted colours let the radar stand out.
 - **Saved view:** the map's centre and zoom are saved to `localStorage` after each move and restored on the next visit.
 - **PWA:** a web app manifest, icons generated from the logo, and a small service worker ([`public/sw.js`](public/sw.js)). The service worker uses network-first for pages, cache-first for build assets and basemap tiles, and never caches rain data. It registers in production builds only.
+- **Never stuck on old assets:** each `bun run build` writes `public/buildId.json` with the build timestamp ([`scripts/write-build-id.ts`](scripts/write-build-id.ts)), and `next.config.mjs` bakes the same id into the app. Whenever the page loads or regains focus, [`app/UpdateCheck.tsx`](app/UpdateCheck.tsx) fetches `/buildId.json` with a cache-busting parameter; if it differs from the baked-in id, a newer build is live, so it deletes every cache, unregisters the service worker and reloads. It reloads at most once per new build, so a stale CDN can't cause a loop. The check is off in `next dev`.
 - **Install button:** [philfung/add-to-homescreen](https://github.com/philfung/add-to-homescreen), loaded from jsDelivr in its English-only build.
 - **SEO:** metadata, Open Graph/Twitter tags, a generated social preview image, `robots.txt`, `sitemap.xml` and schema.org `WebApplication` structured data.
 
@@ -32,6 +33,7 @@ app/
   RainMap.tsx          The map, radar layers, playback and scrubber
   InstallButton.tsx    "Install App" button (add-to-homescreen)
   ServiceWorker.tsx    Registers public/sw.js in production
+  UpdateCheck.tsx      Reloads with fresh caches when a newer build is deployed
   layout.tsx           Metadata, viewport, structured data
   page.tsx             The page (map + hidden heading for crawlers)
   site.ts              Site URL, name, description, colours
@@ -43,7 +45,9 @@ public/
   apple-touch-icon.png     iOS home screen icon (generated)
   icons/                   PWA icons, a maskable one and a PNG favicon (generated)
   sw.js                    Service worker
+  buildId.json             Build id, written on each build (not committed)
 scripts/
+  write-build-id.ts        Writes public/buildId.json (runs in bun run build)
   make-icons.ts            Generates the icons from the logo (bun run icons)
 ```
 

@@ -68,6 +68,9 @@ self.addEventListener("fetch", (event) => {
   if (url.hostname === "gdal.met.ie") {
     return; // live radar: straight to the network
   }
+  if (url.origin === self.location.origin && url.pathname === "/buildId.json") {
+    return; // update check (app/UpdateCheck.tsx): must always hit the network
+  }
   if (request.mode === "navigate") {
     event.respondWith(networkFirst(request, SHELL));
   } else if (url.origin === self.location.origin && url.pathname.startsWith("/_next/static/")) {

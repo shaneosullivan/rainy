@@ -5,3 +5,6 @@ next-env.d.ts
 .claude
 .DS_Store
 .env*.local
+
+# Written by scripts/write-build-id.ts on each build
+public/buildId.json

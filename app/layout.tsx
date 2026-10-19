@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 import { ServiceWorker } from "./ServiceWorker";
+import { UpdateCheck } from "./UpdateCheck";
 import { DESCRIPTION, SITE_NAME, SITE_URL, THEME_COLOR, TITLE } from "./site";
 
 export const metadata: Metadata = {
@@ -74,6 +75,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {children}
         <ServiceWorker />
+        <UpdateCheck />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }} />
       </body>
     </html>
