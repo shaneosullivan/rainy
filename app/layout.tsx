@@ -77,6 +77,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ServiceWorker />
         <UpdateCheck />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }} />
+        {/* SimpleAnalytics (privacy-friendly visit tracking), last in <body>. */}
+        <script defer src="https://scripts.simpleanalyticscdn.com/latest.js" />
+        {/* Counts visits from browsers with JavaScript turned off. */}
+        <noscript>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://queue.simpleanalyticscdn.com/noscript.gif"
+            alt=""
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+        </noscript>
       </body>
     </html>
   );

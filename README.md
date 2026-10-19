@@ -11,7 +11,7 @@ A deliberately tiny web app: a full-screen map of Ireland with Met Éireann's ra
 - Remembers where you were zoomed in for your next visit
 - Installable as an app (PWA), with an "Install App" button that shows the right steps for your phone or browser
 - Works offline for the page and basemap (the rain data itself needs a connection)
-- No API keys, no backend, no tracking
+- No API keys, no backend, and only privacy-friendly, cookie-free visit counts ([Simple Analytics](https://www.simpleanalytics.com/))
 
 ## How it works
 
