@@ -71,8 +71,12 @@ body {
 
 .scrubber .track {
   /* --split (0-1) is where radar turns to forecast, along the thumb's travel,
-     which is inset by the thumb's radius at each end. */
-  --thumb: 18px;
+     which is inset by half the thumb's box at each end. The thumb box is
+     bigger than the 18px circle drawn in it: room for its shadow, and on touch
+     screens a 40px hit target. */
+  --thumb: 24px;
+  /* The visible thumb: an 18px white circle with a soft shadow, centred in the box. */
+  --thumb-dot: radial-gradient(circle, #fff 0 8.5px, rgba(0, 0, 0, 0.35) 9px, rgba(0, 0, 0, 0) 12px);
   --at: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--split, 1));
   position: relative;
   flex: 1;
@@ -134,10 +138,14 @@ body {
 }
 
 .scrubber input {
-  position: relative;
+  /* As tall as the thumb box (it may overflow the track), so all of it is touchable. */
+  position: absolute;
+  top: 50%;
+  left: 0;
   display: block;
   width: 100%;
-  height: 100%;
+  height: var(--thumb);
+  transform: translateY(-50%);
   margin: 0;
   background: transparent;
   appearance: none;
@@ -150,8 +158,7 @@ body {
   height: var(--thumb);
   border: 0;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  background: var(--thumb-dot);
   appearance: none;
   -webkit-appearance: none;
 }
@@ -161,8 +168,14 @@ body {
   height: var(--thumb);
   border: 0;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  background: var(--thumb-dot);
+}
+
+/* Touch screens: a 40px thumb box (same 18px circle) so it's easy to grab. */
+@media (pointer: coarse) {
+  .scrubber .track {
+    --thumb: 40px;
+  }
 }
 
 .scrubber input:focus-visible {
