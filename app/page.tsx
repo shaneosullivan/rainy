@@ -1,4 +1,3 @@
-import { InstallButton } from "./InstallButton";
 import { RainMap } from "./RainMap";
 
 export default function Home() {
@@ -14,7 +13,6 @@ export default function Home() {
         </p>
       </div>
       <RainMap />
-      <InstallButton />
     </main>
   );
 }

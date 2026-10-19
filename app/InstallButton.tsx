@@ -54,7 +54,8 @@ function canInstall(ath: AddToHomeScreenInstance, promptFired: boolean): boolean
   return ath.isDesktopSafari();
 }
 
-export function InstallButton() {
+/** `hidden` fades the button out (e.g. while the map is zoomed in) without unmounting it. */
+export function InstallButton({ hidden = false }: { hidden?: boolean }) {
   const [ath, setAth] = useState<AddToHomeScreenInstance | null>(null);
   const [promptFired, setPromptFired] = useState(false);
   const [installed, setInstalled] = useState(false);
@@ -93,7 +94,12 @@ export function InstallButton() {
       <link rel="stylesheet" href={`${LIB}/add-to-homescreen.min.css`} />
       <Script src={`${LIB}/add-to-homescreen_en.min.js`} strategy="afterInteractive" onReady={init} />
       {visible && (
-        <button className="install" onClick={() => ath.show("en")}>
+        <button
+          className={hidden ? "install install-hidden" : "install"}
+          onClick={() => ath.show("en")}
+          aria-hidden={hidden}
+          tabIndex={hidden ? -1 : undefined}
+        >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={2.2} aria-hidden>
             <path d="M12 4v11M7 10l5 5 5-5M5 20h14" strokeLinecap="round" strokeLinejoin="round" />
           </svg>

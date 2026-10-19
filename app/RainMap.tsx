@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
+import { InstallButton } from "./InstallButton";
 
 const RADAR_API = "https://gdal.met.ie/api/maps/radar";
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
@@ -14,6 +15,8 @@ const IRELAND: [[number, number], [number, number]] = [
   [-5.4, 55.4],
 ];
 // Panning is limited to a box around Ireland.
+// Room for the scrubber and Install App button below Ireland.
+const IRELAND_PADDING = { top: 20, bottom: 130, left: 20, right: 20 };
 const MAX_BOUNDS: [[number, number], [number, number]] = [
   [-14, 49.5],
   [-2, 57.5],
@@ -91,6 +94,8 @@ export function RainMap() {
   const [error, setError] = useState(false);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(true);
+  // Whether the whole of Ireland is in view (the starting zoom, or further out).
+  const [zoomedOut, setZoomedOut] = useState(true);
 
   // Create the map once.
   useEffect(() => {
@@ -106,7 +111,7 @@ export function RainMap() {
         style: MAP_STYLE,
         ...(saved
           ? { center: saved.center, zoom: saved.zoom }
-          : { bounds: IRELAND, fitBoundsOptions: { padding: { top: 20, bottom: 90, left: 20, right: 20 } } }),
+          : { bounds: IRELAND, fitBoundsOptions: { padding: IRELAND_PADDING } }),
         maxBounds: MAX_BOUNDS,
         maxZoom: 10,
         dragRotate: false,
@@ -125,8 +130,18 @@ export function RainMap() {
           console.warn("[map]", e.error?.message ?? e);
         }
       });
+      // "Zoomed out" means at or below the zoom that fits Ireland in this viewport.
+      const updateZoomedOut = () => {
+        const fit = map?.cameraForBounds(IRELAND, { padding: IRELAND_PADDING })?.zoom;
+        if (map && fit != null) {
+          setZoomedOut(map.getZoom() <= fit + 0.05);
+        }
+      };
+      map.on("zoom", updateZoomedOut);
+      map.on("resize", updateZoomedOut);
       map.on("load", () => {
         setMapReady(true);
+        updateZoomedOut();
         // Remember every view after load: the only moves from then on are the user's.
         map?.on("moveend", () => {
           if (map) {
@@ -235,6 +250,7 @@ export function RainMap() {
   return (
     <>
       <div ref={containerRef} className="map" />
+      <InstallButton hidden={!zoomedOut} />
       {frames.length === 0 && <div className="status">{error ? "Radar unavailable right now" : "Loading radar…"}</div>}
       {current && (
         <div className="scrubber">
