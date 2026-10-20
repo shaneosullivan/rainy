@@ -71,6 +71,9 @@ const FORECAST_HOURS = 24;
 // The pin hint shows for this long, then fades out (and collapses) over HINT_FADE_MS.
 const HINT_MS = 5000;
 const HINT_FADE_MS = 700;
+// While scrubbing by touch, the frame's day and time shows above the thumb
+// (clear of the finger) until this long after the last touch.
+const SCRUB_TIME_MS = 3000;
 const FORECAST_AHEAD = 4;
 // Resolution of the scrubber's range input, which snaps to the nearest frame.
 const SLIDER_STEPS = 1000;
@@ -189,6 +192,12 @@ async function stripCoastlines(
   return { data: await blob.arrayBuffer() };
 }
 
+/** "Tue 15:40", with the day even for today. */
+function fmtDayTime(t: number): string {
+  const d = new Date(t);
+  return `${d.toLocaleDateString([], { weekday: "short" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+}
+
 /** "15:40" today, "Tue 15:00" on other days. */
 function fmtTime(t: number): string {
   const d = new Date(t);
@@ -211,6 +220,34 @@ export function RainMap() {
   // briefly, then faded out ("out") and removed ("off").
   const [hint, setHint] = useState<"off" | "on" | "out">("off");
   const hideHint = useCallback(() => setHint((h) => (h === "on" ? "out" : h)), []);
+  // The day/time bubble shown above the scrubber thumb while it's being moved by hand.
+  const [scrubTime, setScrubTime] = useState(false);
+  const scrubHolding = useRef(false);
+  const scrubTimer = useRef(0);
+  /** Shows the bubble; unless a finger is still down, hides it SCRUB_TIME_MS later. */
+  const showScrubTime = useCallback(() => {
+    setScrubTime(true);
+    window.clearTimeout(scrubTimer.current);
+    if (!scrubHolding.current) {
+      scrubTimer.current = window.setTimeout(() => setScrubTime(false), SCRUB_TIME_MS);
+    }
+  }, []);
+  // Backstop: a finger lifted anywhere ends the hold (the input may not see it).
+  useEffect(() => {
+    const release = () => {
+      if (scrubHolding.current) {
+        scrubHolding.current = false;
+        showScrubTime();
+      }
+    };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    return () => {
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+      window.clearTimeout(scrubTimer.current);
+    };
+  }, [showScrubTime]);
 
   // Create the map once.
   useEffect(() => {
@@ -589,6 +626,15 @@ export function RainMap() {
                 </span>
               </>
             )}
+            {/* The frame's day and time above the thumb while moving it by hand
+                (touch screens only, see CSS), so a finger doesn't hide it. */}
+            <div
+              className={scrubTime ? "scrub-time scrub-time-on" : "scrub-time"}
+              style={{ "--pos": position(index) } as React.CSSProperties}
+              aria-hidden
+            >
+              {fmtDayTime(current.time)}
+            </div>
             {/* A fine-grained range (frames aren't evenly spaced) that snaps to the
                 nearest frame; keys step one frame at a time. */}
             <input
@@ -598,7 +644,22 @@ export function RainMap() {
               value={Math.round(position(index) * SLIDER_STEPS)}
               aria-label="Rain time"
               aria-valuetext={`${current.kind === "forecast" ? "Forecast" : "Radar"}, ${fmtTime(current.time)}`}
-              onChange={(e) => seek(nearestFrame(Number(e.target.value) / SLIDER_STEPS))}
+              onChange={(e) => {
+                seek(nearestFrame(Number(e.target.value) / SLIDER_STEPS));
+                showScrubTime();
+              }}
+              onPointerDown={() => {
+                scrubHolding.current = true;
+                showScrubTime();
+              }}
+              onPointerUp={() => {
+                scrubHolding.current = false;
+                showScrubTime();
+              }}
+              onPointerCancel={() => {
+                scrubHolding.current = false;
+                showScrubTime();
+              }}
               onKeyDown={(e) => {
                 const step: Record<string, number> = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -6, PageUp: 6 };
                 if (e.key in step) {

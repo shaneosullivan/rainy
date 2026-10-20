@@ -213,6 +213,10 @@ body {
   /* The visible thumb: an 18px white circle with a soft shadow, centred in the box. */
   --thumb-dot: radial-gradient(circle, #fff 0 8.5px, rgba(0, 0, 0, 0.35) 9px, rgba(0, 0, 0, 0) 12px);
   --at: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--split, 1));
+  /* The bar is inset so it starts at the circle's left edge when the thumb is
+     at the start, and ends at its right edge at the end. */
+  --dot: 18px;
+  --bar-inset: calc((var(--thumb) - var(--dot)) / 2);
   position: relative;
   flex: 1;
   min-width: 0;
@@ -221,12 +225,17 @@ body {
 
 /* Radar (past) in sky blue, forecast in lavender. */
 .scrubber .track-bar {
+  /* The split, in the bar's own coordinates (it's narrower than the track):
+     half the circle, plus the split along the circle centre's travel. */
+  --bar-at: calc(var(--dot) / 2 + (100% - var(--dot)) * var(--split, 1));
   position: absolute;
-  inset: 50% 0 auto;
+  top: 50%;
+  left: var(--bar-inset);
+  right: var(--bar-inset);
   height: 6px;
   transform: translateY(-50%);
   border-radius: 3px;
-  background: linear-gradient(to right, #7dd3fc 0 var(--at), #c4b5fd var(--at) 100%);
+  background: linear-gradient(to right, #7dd3fc 0 var(--bar-at), #c4b5fd var(--bar-at) 100%);
 }
 
 /* The past/forecast boundary, with "Now" beside its lower half. */
@@ -253,6 +262,39 @@ body {
   pointer-events: none;
 }
 
+/* Day and time above the thumb while scrubbing by touch: its bottom 32px above
+   the bar, following the thumb (--pos, 0-1, along the thumb's travel). */
+.scrubber .scrub-time {
+  position: absolute;
+  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--pos, 0));
+  bottom: calc(50% + 3px + 32px);
+  display: none;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 300ms ease-out;
+  pointer-events: none;
+}
+
+.scrubber .scrub-time-on {
+  opacity: 1;
+  transition-duration: 120ms;
+}
+
+@media (pointer: coarse) {
+  .scrubber .scrub-time {
+    display: block;
+  }
+}
+
 /* "Past" and "Future" below the bar at each end. */
 .scrubber .edge-label {
   position: absolute;
@@ -265,11 +307,11 @@ body {
 }
 
 .scrubber .edge-past {
-  left: 0;
+  left: var(--bar-inset);
 }
 
 .scrubber .edge-future {
-  right: 0;
+  right: var(--bar-inset);
 }
 
 .scrubber input {
