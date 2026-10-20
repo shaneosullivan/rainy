@@ -10,6 +10,128 @@ body {
 .map {
   position: fixed;
   inset: 0;
+  /* Long press drops a pin: no text selection or iOS callout. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The user's pin (app/pin.ts). The image's needle tip is its bottom centre,
+   which the marker anchors to the location. --pin-h tracks the zoom loosely. */
+.pin {
+  position: relative;
+  width: var(--pin-h, 32px);
+  height: var(--pin-h, 32px);
+  pointer-events: none;
+  transition:
+    width 120ms ease-out,
+    height 120ms ease-out;
+}
+
+.pin-body {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+
+.pin-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 40%;
+  height: 12%;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.28);
+  transform: translate(-50%, 50%);
+}
+
+/* Drop from above, squash on landing, bounce twice and settle. */
+.pin-dropping .pin-body {
+  animation: pin-drop 750ms both;
+}
+
+.pin-dropping .pin-shadow {
+  animation: pin-shadow 750ms both;
+}
+
+@keyframes pin-drop {
+  0% {
+    transform: translateY(var(--drop-from, -400px)) scale(1);
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  /* Falls at full shape, then squashes on impact. */
+  42% {
+    transform: translateY(0) scale(1);
+    animation-timing-function: ease-out;
+  }
+  50% {
+    transform: translateY(0) scale(1.12, 0.84);
+    animation-timing-function: ease-out;
+  }
+  66% {
+    transform: translateY(-22%) scale(0.95, 1.05);
+    animation-timing-function: ease-in;
+  }
+  80% {
+    transform: translateY(0) scale(1.05, 0.94);
+    animation-timing-function: ease-out;
+  }
+  90% {
+    transform: translateY(-6%) scale(1);
+    animation-timing-function: ease-in;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pin-shadow {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 50%) scale(0.2);
+  }
+  42% {
+    opacity: 1;
+    transform: translate(-50%, 50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, 50%) scale(1.3);
+  }
+  66% {
+    transform: translate(-50%, 50%) scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 50%) scale(1);
+  }
+}
+
+/* The old pin, when a new one replaces it. */
+.pin-leaving {
+  /* Opacity only: MapLibre positions the marker with transform. */
+  transition: opacity 180ms ease-in;
+  opacity: 0;
+}
+
+.pin-leaving .pin-body {
+  transform: scale(0.3);
+  transition: transform 180ms ease-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pin-dropping .pin-body,
+  .pin-dropping .pin-shadow {
+    animation: pin-fade 200ms both;
+  }
+}
+
+@keyframes pin-fade {
+  from {
+    opacity: 0;
+  }
 }
 
 /* Keep the map controls clear of notches and the iOS status bar. */
@@ -227,12 +349,27 @@ body {
   white-space: nowrap;
 }
 
-.install {
-  /* Bottom centre, just above the scrubber (16px from the bottom, 56px tall). */
+/* Bottom centre, just above the scrubber (16px from the bottom, 56px tall):
+   the Install App button, with the pin hint below it. */
+.above-scrubber {
+  /* Full width (contents centred), so a wide child like the hint isn't
+     squeezed into half the screen on phones; clicks pass through to the map. */
   position: fixed;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: calc(max(16px, env(safe-area-inset-bottom)) + 56px + 12px);
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.above-scrubber > * {
+  pointer-events: auto;
+}
+
+.install {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -244,7 +381,6 @@ body {
   font: 600 14px system-ui, -apple-system, sans-serif;
   box-shadow: 0 4px 14px rgba(1, 89, 176, 0.4);
   cursor: pointer;
-  transform: translateX(-50%);
   transition:
     opacity 250ms ease-out,
     transform 250ms ease-out;
@@ -258,16 +394,16 @@ body {
 }
 
 /* While zoomed in: faded out and not clickable. */
-.install-hidden {
+.above-scrubber > .install-hidden {
   opacity: 0;
-  transform: translate(-50%, 6px);
+  transform: translateY(6px);
   pointer-events: none;
 }
 
 @keyframes install-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 6px);
+    transform: translateY(6px);
   }
 }
 
@@ -277,14 +413,81 @@ body {
     animation-name: install-fade;
   }
 
-  .install-hidden {
-    transform: translateX(-50%);
+  .above-scrubber > .install-hidden {
+    transform: none;
+  }
+
+  .hint,
+  .hint-wrap {
+    transition-property: opacity;
   }
 }
 
 @keyframes install-fade {
   from {
     opacity: 0;
+  }
+}
+
+/* "Long press to drop a pin": fades in, then fades out and collapses (so the
+   Install App button above it slides down into its place). */
+.hint-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 300ms ease-in-out 350ms;
+}
+
+.hint-wrap.hint-out {
+  grid-template-rows: 0fr;
+}
+
+.hint-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 6px 16px 6px 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #fff;
+  font: 600 14px system-ui, -apple-system, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transition:
+    opacity 350ms ease-out,
+    transform 350ms ease-out;
+  animation: hint-in 400ms ease-out backwards;
+}
+
+.hint-out .hint {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.hint-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.hint-icon img {
+  width: 22px;
+  height: 22px;
+}
+
+@keyframes hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
   }
 }
 

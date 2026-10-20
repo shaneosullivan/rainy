@@ -6,10 +6,21 @@
 // transparent raster tiles. Both are
 // CORS-enabled, so the browser uses them directly.
 
-import { useEffect, useRef, useState } from "react";
-import type { Map as MapLibreMap } from "maplibre-gl";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Map as MapLibreMap, Marker } from "maplibre-gl";
 import { removeCoastline } from "./coastline";
 import { InstallButton } from "./InstallButton";
+import {
+  animateDrop,
+  animateLeave,
+  clearPin,
+  createPinElement,
+  isOnPin,
+  loadPin,
+  onLongPress,
+  savePin,
+  sizePin,
+} from "./pin";
 
 const MAPS_API = "https://gdal.met.ie/api/maps";
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
@@ -57,6 +68,9 @@ const FETCH_TIMEOUT_MS = 15 * 1000;
 const FORECAST_BEHIND = 2;
 // How far ahead the forecast goes (Met Éireann's runs to about a week).
 const FORECAST_HOURS = 24;
+// The pin hint shows for this long, then fades out (and collapses) over HINT_FADE_MS.
+const HINT_MS = 5000;
+const HINT_FADE_MS = 700;
 const FORECAST_AHEAD = 4;
 // Resolution of the scrubber's range input, which snaps to the nearest frame.
 const SLIDER_STEPS = 1000;
@@ -200,11 +214,16 @@ export function RainMap() {
   const [playing, setPlaying] = useState(true);
   // Whether the whole of Ireland is in view (the starting zoom, or further out).
   const [zoomedOut, setZoomedOut] = useState(true);
+  // The "Long press to drop a pin" hint: only for people without a pin, shown
+  // briefly, then faded out ("out") and removed ("off").
+  const [hint, setHint] = useState<"off" | "on" | "out">("off");
+  const hideHint = useCallback(() => setHint((h) => (h === "on" ? "out" : h)), []);
 
   // Create the map once.
   useEffect(() => {
     let map: MapLibreMap | null = null;
     let cancelled = false;
+    let stopLongPress = () => {};
     import("maplibre-gl").then((lib) => {
       if (cancelled || !containerRef.current) {
         return;
@@ -244,9 +263,55 @@ export function RainMap() {
       };
       map.on("zoom", updateZoomedOut);
       map.on("resize", updateZoomedOut);
+
+      // The user's pin: restored from last time, and dropped (replacing any
+      // existing one) by a long press. Sized loosely by zoom so it's always
+      // easy to see.
+      let pin: Marker | null = null;
+      const placePin = (lng: number, lat: number) => {
+        const el = createPinElement(map?.getZoom() ?? 6);
+        pin = new lib.Marker({ element: el, anchor: "bottom" }).setLngLat([lng, lat]).addTo(map as MapLibreMap);
+        return el;
+      };
+      const savedPin = loadPin();
+      if (savedPin) {
+        placePin(savedPin.lng, savedPin.lat);
+      }
+      map.on("zoom", () => {
+        const el = pin?.getElement();
+        if (el && map) {
+          sizePin(el, map.getZoom());
+        }
+      });
+      stopLongPress = onLongPress(map, (lngLat, point) => {
+        if (!map) {
+          return;
+        }
+        hideHint();
+        // A long press on the pin removes it.
+        if (pin && isOnPin(pin.getElement(), map.getContainer(), point)) {
+          const removed = pin;
+          pin = null;
+          animateLeave(removed.getElement(), () => removed.remove());
+          clearPin();
+          navigator.vibrate?.(15);
+          return;
+        }
+        const old = pin;
+        if (old) {
+          animateLeave(old.getElement(), () => old.remove());
+        }
+        const el = placePin(lngLat.lng, lngLat.lat);
+        // Fall from just above the top of the map to where it lands.
+        animateDrop(el, map.project(lngLat).y + 80);
+        savePin({ lng: lngLat.lng, lat: lngLat.lat });
+        navigator.vibrate?.(15);
+      });
       map.on("load", () => {
         setMapReady(true);
         updateZoomedOut();
+        // Zooming dismisses the pin hint (only the user zooms after load).
+        map?.on("zoomstart", hideHint);
         // Remember every view after load: the only moves from then on are the user's.
         map?.on("moveend", () => {
           if (map) {
@@ -259,10 +324,28 @@ export function RainMap() {
     });
     return () => {
       cancelled = true;
+      stopLongPress();
       map?.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [hideHint]);
+
+  // Show the pin hint if there's no saved pin; hide it after a few seconds,
+  // and remove it once it has faded out.
+  useEffect(() => {
+    if (!loadPin()) {
+      setHint("on");
+    }
+    const id = window.setTimeout(hideHint, HINT_MS);
+    return () => window.clearTimeout(id);
+  }, [hideHint]);
+  useEffect(() => {
+    if (hint !== "out") {
+      return;
+    }
+    const id = window.setTimeout(() => setHint("off"), HINT_FADE_MS);
+    return () => window.clearTimeout(id);
+  }, [hint]);
 
   // The latest frames and selection, for the refresh below (which outlives renders).
   const framesRef = useRef(frames);
@@ -468,7 +551,22 @@ export function RainMap() {
   return (
     <>
       <div ref={containerRef} className="map" />
-      <InstallButton hidden={!zoomedOut} />
+      <div className="above-scrubber">
+        <InstallButton hidden={!zoomedOut} />
+        {hint !== "off" && (
+          <div className={hint === "out" ? "hint-wrap hint-out" : "hint-wrap"} role="status">
+            <div className="hint-clip">
+              <div className="hint">
+                <span className="hint-icon">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/pin.png" alt="" />
+                </span>
+                Long press to drop a pin
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
       {frames.length === 0 && <div className="status">{error ? "Rain data unavailable right now" : "Loading radar…"}</div>}
       {current && (
         <div className="scrubber">

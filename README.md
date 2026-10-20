@@ -9,6 +9,7 @@ A deliberately tiny web app: a full-screen map of Ireland with Met Éireann's ra
 - Play/pause and scrub from the past hour into the forecast; play loops whichever you're viewing
 - Zoom and pan, limited to the area around Ireland
 - Remembers where you were zoomed in for your next visit
+- Long press to drop a pin (with a drop-and-bounce animation); long press the pin to remove it. It's remembered, and sized to stay easy to see at every zoom
 - Installable as an app (PWA), with an "Install App" button that shows the right steps for your phone or browser
 - Works offline for the page and basemap (the rain data itself needs a connection)
 - No API keys, no backend, and only privacy-friendly, cookie-free visit counts ([Simple Analytics](https://www.simpleanalytics.com/))
@@ -36,6 +37,8 @@ app/
   ServiceWorker.tsx    Registers public/sw.js in production
   UpdateCheck.tsx      Reloads with fresh caches when a newer build is deployed
   coastline.ts         Removes the coastline drawn into forecast tiles
+  pin.ts               The long-press pin: storage, sizing, animations, long-press detection
+  assets/pin.png       Pin image (copied to public/pin.png)
   layout.tsx           Metadata, viewport, structured data
   page.tsx             The page (map + hidden heading for crawlers)
   site.ts              Site URL, name, description, colours
