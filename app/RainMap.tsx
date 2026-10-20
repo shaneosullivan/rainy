@@ -1,8 +1,9 @@
 "use client";
 // Live rainfall radar and rainfall forecast from Met Éireann (CC BY 4.0) over
 // OpenFreeMap tiles. Met Éireann's map API lists the recent radar frames (one
-// every 5 minutes) and the forecast frames (hourly, then 3- and 6-hourly, out
-// to about a week), and serves each as transparent raster tiles. Both are
+// every 5 minutes) and the forecast frames (hourly at first, out to about a
+// week; only the next FORECAST_HOURS are shown), and serves each as
+// transparent raster tiles. Both are
 // CORS-enabled, so the browser uses them directly.
 
 import { useEffect, useRef, useState } from "react";
@@ -54,6 +55,8 @@ const FETCH_TIMEOUT_MS = 15 * 1000;
 // Forecast frames are only loaded near the scrubber position (radar frames all
 // stay loaded): this many behind and ahead.
 const FORECAST_BEHIND = 2;
+// How far ahead the forecast goes (Met Éireann's runs to about a week).
+const FORECAST_HOURS = 24;
 const FORECAST_AHEAD = 4;
 // Resolution of the scrubber's range input, which snaps to the nearest frame.
 const SLIDER_STEPS = 1000;
@@ -116,7 +119,10 @@ async function fetchKind(kind: Kind): Promise<Array<Frame>> {
     .sort((a, b) => a.time - b.time);
 }
 
-/** Radar frames, then the forecast frames after the newest radar frame. Either alone is fine. */
+/**
+ * Radar frames, then the forecast frames after the newest radar frame and
+ * within FORECAST_HOURS of now. Either alone is fine.
+ */
 async function fetchFrames(): Promise<Array<Frame>> {
   const [radar, forecast] = await Promise.allSettled([fetchKind("radar"), fetchKind("forecast")]);
   const past = radar.status === "fulfilled" ? radar.value : [];
@@ -125,7 +131,8 @@ async function fetchFrames(): Promise<Array<Frame>> {
     throw radar.reason;
   }
   const latest = past.at(-1)?.time ?? -Infinity;
-  return [...past, ...future.filter((f) => f.time > latest)];
+  const horizon = Date.now() + FORECAST_HOURS * 60 * 60 * 1000;
+  return [...past, ...future.filter((f) => f.time > latest && f.time <= horizon)];
 }
 
 const layerId = (f: Frame) => `frame-${f.id}`;

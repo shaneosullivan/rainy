@@ -2,10 +2,10 @@
 
 **Live rain radar for Ireland** — [rainy.ie](https://rainy.ie)
 
-A deliberately tiny web app: a full-screen map of Ireland with Met Éireann's rainfall radar and rain forecast animated over it, and a scrubber to step from the last hour of rain into the week ahead.
+A deliberately tiny web app: a full-screen map of Ireland with Met Éireann's rainfall radar and rain forecast animated over it, and a scrubber to step from the last hour of rain into the next 24 hours.
 
 - Live radar from [Met Éireann](https://www.met.ie/), a new frame every 5 minutes
-- Rain forecast for about a week ahead (hourly at first, then every 3 and 6 hours)
+- Hourly rain forecast for the next 24 hours
 - Play/pause and scrub from the past hour into the forecast; play loops whichever you're viewing
 - Zoom and pan, limited to the area around Ireland
 - Remembers where you were zoomed in for your next visit
@@ -17,7 +17,7 @@ A deliberately tiny web app: a full-screen map of Ireland with Met Éireann's ra
 
 Everything runs in the browser. There's no server-side data fetching.
 
-- **Radar and forecast:** Met Éireann's map API lists the recent radar frames at `https://gdal.met.ie/api/maps/radar` and the rainfall forecast frames at `https://gdal.met.ie/api/maps/rainfall`. Each frame is served as transparent raster map tiles. Both are CORS-enabled, so the page fetches them directly. Frames are [MapLibre](https://maplibre.org/) raster layers with only the current one visible. All radar frames stay loaded; forecast frames are loaded only near the scrubber position. Met Éireann publishes a radar frame every 5 minutes, about 4½ minutes after its timestamp, so the frame lists refresh 15 seconds after each 5-minute mark, retrying every 30 seconds (up to 4 times) until that mark's frame is in. They also refresh whenever the page is focused, shown again or back online (at most once a minute), always revalidating rather than using the browser's cached copy. If you were on the newest radar frame, you move on to the new newest one.
+- **Radar and forecast:** Met Éireann's map API lists the recent radar frames at `https://gdal.met.ie/api/maps/radar` and the rainfall forecast frames at `https://gdal.met.ie/api/maps/rainfall` (about a week of them; the app shows the next 24 hours). Each frame is served as transparent raster map tiles. Both are CORS-enabled, so the page fetches them directly. Frames are [MapLibre](https://maplibre.org/) raster layers with only the current one visible. All radar frames stay loaded; forecast frames are loaded only near the scrubber position. Met Éireann publishes a radar frame every 5 minutes, about 4½ minutes after its timestamp, so the frame lists refresh 15 seconds after each 5-minute mark, retrying every 30 seconds (up to 4 times) until that mark's frame is in. They also refresh whenever the page is focused, shown again or back online (at most once a minute), always revalidating rather than using the browser's cached copy. If you were on the newest radar frame, you move on to the new newest one.
 - **Forecast coastlines:** the forecast tiles have coastlines drawn in, which would double up the basemap's. They load through a custom MapLibre protocol that removes them ([`app/coastline.ts`](app/coastline.ts)): it finds the line (near-black cores and their soft edges, colours too dark to be rain, and rain evenly darkened by the line) and fills each of its pixels from the nearest clean rain pixel, so the rain has no gap where the coast was.
 - **Forecast zoom:** forecast tiles only have data up to zoom 9 (radar goes further), so beyond that MapLibre upscales the zoom-9 tiles rather than loading blank ones.
 - **Basemap:** [OpenFreeMap](https://openfreemap.org/)'s free "positron" vector style. It needs no key, and its muted colours let the radar stand out.
