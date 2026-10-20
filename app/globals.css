@@ -172,6 +172,137 @@ body {
   height: 14px;
 }
 
+/* Rain-rate legend (app/Legend.tsx): a narrow vertical key on the right edge,
+   centred between the zoom controls and the scrubber. Click-through. */
+.legend {
+  position: fixed;
+  top: 50%;
+  right: calc(env(safe-area-inset-right) + 10px);
+  z-index: 5;
+  padding: 8px 8px 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.legend-title {
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: right;
+  opacity: 0.7;
+}
+
+.legend-scale {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend-scale li {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 13px;
+}
+
+/* Each value sits on its band's lower edge, where the band starts. */
+.legend-value {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  transform: translateY(50%);
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 100%;
+  background: var(--band);
+}
+
+.legend-scale li:first-child .legend-swatch {
+  border-radius: 3px 3px 0 0;
+}
+
+.legend-scale li:last-child .legend-swatch {
+  border-radius: 0 0 3px 3px;
+}
+
+/* Phones: a horizontal strip along the top, between the attribution's "i"
+   button (24px, 10px in) and the zoom controls, lightest rain on the left.
+   It takes turns with the attribution text (see RainMap). */
+@media (max-width: 600px) {
+  .legend {
+    top: calc(env(safe-area-inset-top) + 10px);
+    left: calc(env(safe-area-inset-left) + 10px + 24px + 8px);
+    right: calc(env(safe-area-inset-right) + 10px + 29px + 10px);
+    display: flex;
+    align-items: center;
+    /* Room for the first value, centred on the bar's left edge. */
+    gap: 14px;
+    padding: 5px 10px 4px;
+    border-radius: 10px;
+    transform: none;
+    transition: opacity 300ms ease-out;
+  }
+
+  .legend-hidden {
+    opacity: 0;
+  }
+
+  .legend-title {
+    flex: none;
+    margin: 0;
+  }
+
+  .legend-scale {
+    flex: 1;
+    flex-direction: row-reverse;
+  }
+
+  /* Each band: its swatch, with its starting value under the left edge. */
+  .legend-scale li {
+    flex: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 2px;
+    height: auto;
+  }
+
+  .legend-swatch {
+    order: -1;
+    width: 100%;
+    height: 8px;
+  }
+
+  .legend-value {
+    font-size: 9px;
+    transform: translateX(-50%);
+  }
+
+  .legend-scale li:first-child .legend-swatch {
+    border-radius: 0 3px 3px 0;
+  }
+
+  .legend-scale li:last-child .legend-swatch {
+    border-radius: 3px 0 0 3px;
+  }
+
+  /* The attribution text fades out before collapsing to its "i" button. */
+  .maplibregl-ctrl-attrib.attrib-fading .maplibregl-ctrl-attrib-inner {
+    opacity: 0;
+    transition: opacity 300ms ease-out;
+  }
+}
+
 .status {
   position: fixed;
   top: 50%;

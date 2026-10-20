@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap, Marker } from "maplibre-gl";
 import { removeCoastline } from "./coastline";
 import { InstallButton } from "./InstallButton";
+import { Legend } from "./Legend";
 import {
   animateDrop,
   animateLeave,
@@ -30,7 +31,7 @@ const IRELAND: [[number, number], [number, number]] = [
 ];
 /** Padding around Ireland, leaving room below for the scrubber (taller on phones, see --scrubber-h) and Install App. */
 function irelandPadding() {
-  const phone = typeof window !== "undefined" && window.matchMedia("(max-width: 600px)").matches;
+  const phone = typeof window !== "undefined" && window.matchMedia(PHONE_QUERY).matches;
   return { top: 20, bottom: phone ? 156 : 130, left: 20, right: 20 };
 }
 // Panning is limited to a box around Ireland.
@@ -74,6 +75,11 @@ const FORECAST_HOURS = 24;
 // The pin hint shows for this long, then fades out (and collapses) over HINT_FADE_MS.
 const HINT_MS = 5000;
 const HINT_FADE_MS = 700;
+// On phones the attribution shows for this long, then its text fades out (over
+// ATTRIB_FADE_MS) and the legend takes its place.
+const ATTRIB_SHOW_MS = 3000;
+const ATTRIB_FADE_MS = 300;
+const PHONE_QUERY = "(max-width: 600px)";
 const FORECAST_AHEAD = 4;
 // Resolution of the scrubber's range input, which snaps to the nearest frame.
 const SLIDER_STEPS = 1000;
@@ -214,12 +220,17 @@ export function RainMap() {
   // briefly, then faded out ("out") and removed ("off").
   const [hint, setHint] = useState<"off" | "on" | "out">("off");
   const hideHint = useCallback(() => setHint((h) => (h === "on" ? "out" : h)), []);
+  // Whether the compact (phone) attribution is expanded; on phones the legend
+  // shows only while it isn't.
+  const [attribOpen, setAttribOpen] = useState(true);
 
   // Create the map once.
   useEffect(() => {
     let map: MapLibreMap | null = null;
     let cancelled = false;
     let stopLongPress = () => {};
+    let attribObserver: MutationObserver | null = null;
+    let attribTimer = 0;
     import("maplibre-gl").then((lib) => {
       if (cancelled || !containerRef.current) {
         return;
@@ -244,6 +255,25 @@ export function RainMap() {
       map.keyboard.disableRotation();
       map.addControl(new lib.NavigationControl({ showCompass: false }), "top-right");
       map.addControl(new lib.AttributionControl({ compact: true, customAttribution: ATTRIBUTION }), "top-left");
+      // Follow the attribution's open state (its "i" button and map drags
+      // toggle it), and on phones fade its text out after a few seconds so
+      // the legend can take its place.
+      const attrib = map.getContainer().querySelector<HTMLElement>(".maplibregl-ctrl-attrib");
+      if (attrib) {
+        const sync = () => setAttribOpen(attrib.classList.contains("maplibregl-compact-show"));
+        attribObserver = new MutationObserver(sync);
+        attribObserver.observe(attrib, { attributes: true, attributeFilter: ["class"] });
+        sync();
+        attribTimer = window.setTimeout(() => {
+          if (!window.matchMedia(PHONE_QUERY).matches || !attrib.classList.contains("maplibregl-compact-show")) {
+            return;
+          }
+          attrib.classList.add("attrib-fading");
+          attribTimer = window.setTimeout(() => {
+            attrib.classList.remove("attrib-fading", "maplibregl-compact-show");
+          }, ATTRIB_FADE_MS);
+        }, ATTRIB_SHOW_MS);
+      }
       // Missing rain tiles just leave gaps; don't log each one.
       map.on("error", (e) => {
         if (!(e as { sourceId?: string }).sourceId?.startsWith("frame-")) {
@@ -321,6 +351,8 @@ export function RainMap() {
     return () => {
       cancelled = true;
       stopLongPress();
+      attribObserver?.disconnect();
+      window.clearTimeout(attribTimer);
       map?.remove();
       mapRef.current = null;
     };
@@ -556,6 +588,7 @@ export function RainMap() {
   return (
     <>
       <div ref={containerRef} className="map" />
+      <Legend hidden={attribOpen} />
       <div className="above-scrubber">
         <InstallButton hidden={!zoomedOut} />
         {hint !== "off" && (
