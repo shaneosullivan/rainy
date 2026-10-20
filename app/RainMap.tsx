@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap, Marker } from "maplibre-gl";
-import { removeCoastline } from "./coastline";
+import { FORECAST_PROTOCOL, loadForecastTile } from "./forecastTiles";
 import { InstallButton } from "./InstallButton";
 import { Legend } from "./Legend";
 import {
@@ -67,9 +67,6 @@ const MAX_RETRIES = 4;
 // fresher anyway. Scheduled refreshes at each 5-minute mark aren't limited.
 const MIN_REFRESH_GAP_MS = 60 * 1000;
 const FETCH_TIMEOUT_MS = 15 * 1000;
-// Forecast frames are only loaded near the scrubber position (radar frames all
-// stay loaded): this many behind and ahead.
-const FORECAST_BEHIND = 2;
 // How far ahead the forecast goes (Met Éireann's runs to about a week).
 const FORECAST_HOURS = 24;
 // The pin hint shows for this long, then fades out (and collapses) over HINT_FADE_MS.
@@ -80,7 +77,6 @@ const HINT_FADE_MS = 700;
 const ATTRIB_SHOW_MS = 3000;
 const ATTRIB_FADE_MS = 300;
 const PHONE_QUERY = "(max-width: 600px)";
-const FORECAST_AHEAD = 4;
 // Resolution of the scrubber's range input, which snaps to the nearest frame.
 const SLIDER_STEPS = 1000;
 
@@ -160,42 +156,10 @@ async function fetchFrames(): Promise<Array<Frame>> {
 
 const layerId = (f: Frame) => `frame-${f.id}`;
 
-// Forecast tiles have coastlines drawn in, which would double up the basemap's,
-// so they load through this protocol, which removes them (see app/coastline.ts).
-const FORECAST_PROTOCOL = "metforecast";
-
 /** Tile URL template for a frame (note Met Éireann's x/y/z order). */
 function tileUrl(f: Frame): string {
   const url = `${MAPS_API}/${API_PATH[f.kind]}/${f.src}/{x}/{y}/{z}/${f.mod}`;
   return f.kind === "forecast" ? url.replace(/^https:/, `${FORECAST_PROTOCOL}:`) : url;
-}
-
-/** Fetches a forecast tile and removes its baked-in coastline. */
-async function stripCoastlines(
-  params: { url: string },
-  abort: AbortController,
-): Promise<{ data: ArrayBuffer }> {
-  const res = await fetch(params.url.replace(`${FORECAST_PROTOCOL}:`, "https:"), { signal: abort.signal });
-  if (!res.ok) {
-    throw new Error(`Forecast tile failed (${res.status})`);
-  }
-  const bitmap = await createImageBitmap(await res.blob());
-  const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) {
-    throw new Error("No 2D canvas");
-  }
-  ctx.drawImage(bitmap, 0, 0);
-  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  removeCoastline(pixels.data, canvas.width, canvas.height);
-  ctx.putImageData(pixels, 0, 0);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-  if (!blob) {
-    throw new Error("Tile encode failed");
-  }
-  return { data: await blob.arrayBuffer() };
 }
 
 /** "15:40" today, "Tue 15:00" on other days. */
@@ -235,7 +199,7 @@ export function RainMap() {
       if (cancelled || !containerRef.current) {
         return;
       }
-      lib.addProtocol(FORECAST_PROTOCOL, stripCoastlines);
+      lib.addProtocol(FORECAST_PROTOCOL, loadForecastTile);
       const saved = loadView();
       map = new lib.Map({
         container: containerRef.current,
@@ -468,23 +432,15 @@ export function RainMap() {
   const current = frames[index];
   const last = frames.length - 1;
 
-  // One raster layer per loaded frame, under the place labels so town names
-  // stay readable, with only the current frame visible. All radar frames stay
-  // loaded (playback loops back to the first of them); forecast frames only
-  // near the current one.
+  // One raster layer per frame, under the place labels so town names stay
+  // readable, with only the current frame visible. Every frame (radar and
+  // forecast) stays loaded, so scrubbing shows each one instantly.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) {
       return;
     }
-    const wanted = new Set(
-      frames
-        .filter(
-          (f, i) =>
-            f.kind === "radar" || (i >= index - FORECAST_BEHIND && i <= index + FORECAST_AHEAD),
-        )
-        .map(layerId),
-    );
+    const wanted = new Set(frames.map(layerId));
     for (const layer of map.getStyle().layers ?? []) {
       if (layer.id.startsWith("frame-") && !wanted.has(layer.id)) {
         map.removeLayer(layer.id);
