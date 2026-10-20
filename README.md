@@ -6,7 +6,7 @@ A deliberately tiny web app: a full-screen map of Ireland with Met Éireann's ra
 
 - Live radar from [Met Éireann](https://www.met.ie/), a new frame every 5 minutes
 - Hourly rain forecast for the next 24 hours
-- Play/pause and scrub from the past hour into the forecast; play loops whichever you're viewing
+- Play/pause and scrub from the past hour into the forecast; play runs straight through from the past into the forecast, then loops
 - Zoom and pan, limited to the area around Ireland
 - Remembers where you were zoomed in for your next visit
 - Long press to drop a pin (with a drop-and-bounce animation); long press the pin to remove it. It's remembered, and sized to stay easy to see at every zoom

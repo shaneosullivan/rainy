@@ -49,7 +49,7 @@ const ATTRIBUTION =
   `<div>${BASEMAP_ATTRIBUTION}</div>`;
 const RAIN_OPACITY = 0.75;
 const FRAME_MS = 450;
-const HOLD_MS = 1600; // pause on the last frame of the radar or forecast before looping
+const HOLD_MS = 1600; // pause on the last frame before looping back to the start
 const LOAD_WAIT_MS = 3000; // max wait for the next frame's tiles before moving on
 // Met Éireann publishes a radar frame every 5 minutes, 4-5 minutes after its
 // timestamp, so each lands just before the next 5-minute mark. Refresh just
@@ -194,13 +194,6 @@ function fmtTime(t: number): string {
   const d = new Date(t);
   const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { weekday: "short" })} ${time}`;
-}
-
-/** The [first, last] index of the frames of the same kind as frames[i]. */
-function section(frames: Array<Frame>, i: number): [number, number] {
-  const kind = frames[i]?.kind;
-  const first = frames.findIndex((f) => f.kind === kind);
-  return [first, first + frames.filter((f) => f.kind === kind).length - 1];
 }
 
 export function RainMap() {
@@ -437,12 +430,12 @@ export function RainMap() {
   const found = frames.findIndex((f) => f.id === selectedId);
   const index = found >= 0 ? found : Math.max(0, latestRadar);
   const current = frames[index];
-  const [first, last] = section(frames, index);
+  const last = frames.length - 1;
 
   // One raster layer per loaded frame, under the place labels so town names
   // stay readable, with only the current frame visible. All radar frames stay
-  // loaded; forecast frames only near the current one (and the forecast's
-  // first frame, which playback loops back to).
+  // loaded (playback loops back to the first of them); forecast frames only
+  // near the current one.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) {
@@ -452,7 +445,7 @@ export function RainMap() {
       frames
         .filter(
           (f, i) =>
-            f.kind === "radar" || i === first || (i >= index - FORECAST_BEHIND && i <= index + FORECAST_AHEAD),
+            f.kind === "radar" || (i >= index - FORECAST_BEHIND && i <= index + FORECAST_AHEAD),
         )
         .map(layerId),
     );
@@ -491,16 +484,16 @@ export function RainMap() {
         map.setPaintProperty(layerId(f), "raster-opacity", i === index ? RAIN_OPACITY : 0);
       }
     });
-  }, [frames, index, first, mapReady]);
+  }, [frames, index, mapReady]);
 
-  // Playback: loop through the radar or the forecast, whichever is showing,
-  // holding on its last frame. Waits (briefly) for the next frame's tiles so
-  // it doesn't flash empty frames.
+  // Playback: straight through the past, now and the forecast, holding on the
+  // last frame before looping back to the start. Waits (briefly) for the next
+  // frame's tiles so it doesn't flash empty frames.
   useEffect(() => {
-    if (!playing || last - first < 1) {
+    if (!playing || last < 1) {
       return;
     }
-    const next = index < last ? index + 1 : first;
+    const next = index < last ? index + 1 : 0;
     let waited = 0;
     let timer = 0;
     const advance = () => {
@@ -515,7 +508,7 @@ export function RainMap() {
     };
     timer = window.setTimeout(advance, index === last ? HOLD_MS : FRAME_MS);
     return () => window.clearTimeout(timer);
-  }, [playing, index, first, last, frames]);
+  }, [playing, index, last, frames]);
 
   // Where the scrubber track switches from radar to forecast (0-1), if it does.
   const radarCount = latestRadar + 1;
