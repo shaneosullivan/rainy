@@ -1,3 +1,14 @@
+:root {
+  /* The scrubber panel's height, for things stacked above it. */
+  --scrubber-h: 56px;
+}
+
+@media (max-width: 600px) {
+  :root {
+    --scrubber-h: 76px;
+  }
+}
+
 html,
 body {
   margin: 0;
@@ -262,39 +273,6 @@ body {
   pointer-events: none;
 }
 
-/* Day and time above the thumb while scrubbing by touch: its bottom 32px above
-   the bar, following the thumb (--pos, 0-1, along the thumb's travel). */
-.scrubber .scrub-time {
-  position: absolute;
-  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--pos, 0));
-  bottom: calc(50% + 3px + 32px);
-  display: none;
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.92);
-  color: #fff;
-  font-size: 15px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-  opacity: 0;
-  transform: translateX(-50%);
-  transition: opacity 300ms ease-out;
-  pointer-events: none;
-}
-
-.scrubber .scrub-time-on {
-  opacity: 1;
-  transition-duration: 120ms;
-}
-
-@media (pointer: coarse) {
-  .scrubber .scrub-time {
-    display: block;
-  }
-}
-
 /* "Past" and "Future" below the bar at each end. */
 .scrubber .edge-label {
   position: absolute;
@@ -370,6 +348,70 @@ body {
   line-height: 1.15;
 }
 
+/* Phones: Radar/Forecast and the time go in a row above the slider, so the
+   slider gets the full width beside the play button. */
+@media (max-width: 600px) {
+  .scrubber {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    /* The label row sits over the slider only, so its centre is the Now line. */
+    grid-template-areas:
+      ". when"
+      "play track";
+    column-gap: 12px;
+    row-gap: 4px;
+    padding-top: 8px;
+  }
+
+  .scrubber > button {
+    grid-area: play;
+  }
+
+  .scrubber .track {
+    grid-area: track;
+    align-self: center;
+  }
+
+  /* The colon sits in a centre column, exactly over the Now line; "Radar"
+     comes before the time, "Forecast" after it. */
+  .scrubber .when {
+    grid-area: when;
+    display: block;
+    min-width: 0;
+  }
+
+  .scrubber .when .kind-top {
+    display: none;
+  }
+
+  .scrubber .when time {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: baseline;
+  }
+
+  .scrubber .time-before {
+    justify-self: end;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .scrubber .time-after {
+    justify-self: start;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+}
+
+/* Desktop shows the kind above the time instead. */
+@media (min-width: 601px) {
+  .scrubber .kind-inline {
+    display: none;
+  }
+}
+
 .scrubber .kind {
   font-size: 10px;
   font-weight: 700;
@@ -391,7 +433,7 @@ body {
   white-space: nowrap;
 }
 
-/* Bottom centre, just above the scrubber (16px from the bottom, 56px tall):
+/* Bottom centre, just above the scrubber (16px from the bottom, --scrubber-h tall):
    the Install App button, with the pin hint below it. */
 .above-scrubber {
   /* Full width (contents centred), so a wide child like the hint isn't
@@ -399,7 +441,7 @@ body {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 56px + 12px);
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + var(--scrubber-h) + 12px);
   z-index: 10;
   display: flex;
   flex-direction: column;

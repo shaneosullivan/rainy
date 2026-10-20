@@ -28,8 +28,11 @@ const IRELAND: [[number, number], [number, number]] = [
   [-10.6, 51.4],
   [-5.4, 55.4],
 ];
-// Room for the scrubber and Install App button below Ireland.
-const IRELAND_PADDING = { top: 20, bottom: 130, left: 20, right: 20 };
+/** Padding around Ireland, leaving room below for the scrubber (taller on phones, see --scrubber-h) and Install App. */
+function irelandPadding() {
+  const phone = typeof window !== "undefined" && window.matchMedia("(max-width: 600px)").matches;
+  return { top: 20, bottom: phone ? 156 : 130, left: 20, right: 20 };
+}
 // Panning is limited to a box around Ireland.
 const MAX_BOUNDS: [[number, number], [number, number]] = [
   [-14, 49.5],
@@ -71,9 +74,6 @@ const FORECAST_HOURS = 24;
 // The pin hint shows for this long, then fades out (and collapses) over HINT_FADE_MS.
 const HINT_MS = 5000;
 const HINT_FADE_MS = 700;
-// While scrubbing by touch, the frame's day and time shows above the thumb
-// (clear of the finger) until this long after the last touch.
-const SCRUB_TIME_MS = 3000;
 const FORECAST_AHEAD = 4;
 // Resolution of the scrubber's range input, which snaps to the nearest frame.
 const SLIDER_STEPS = 1000;
@@ -192,12 +192,6 @@ async function stripCoastlines(
   return { data: await blob.arrayBuffer() };
 }
 
-/** "Tue 15:40", with the day even for today. */
-function fmtDayTime(t: number): string {
-  const d = new Date(t);
-  return `${d.toLocaleDateString([], { weekday: "short" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-}
-
 /** "15:40" today, "Tue 15:00" on other days. */
 function fmtTime(t: number): string {
   const d = new Date(t);
@@ -220,34 +214,6 @@ export function RainMap() {
   // briefly, then faded out ("out") and removed ("off").
   const [hint, setHint] = useState<"off" | "on" | "out">("off");
   const hideHint = useCallback(() => setHint((h) => (h === "on" ? "out" : h)), []);
-  // The day/time bubble shown above the scrubber thumb while it's being moved by hand.
-  const [scrubTime, setScrubTime] = useState(false);
-  const scrubHolding = useRef(false);
-  const scrubTimer = useRef(0);
-  /** Shows the bubble; unless a finger is still down, hides it SCRUB_TIME_MS later. */
-  const showScrubTime = useCallback(() => {
-    setScrubTime(true);
-    window.clearTimeout(scrubTimer.current);
-    if (!scrubHolding.current) {
-      scrubTimer.current = window.setTimeout(() => setScrubTime(false), SCRUB_TIME_MS);
-    }
-  }, []);
-  // Backstop: a finger lifted anywhere ends the hold (the input may not see it).
-  useEffect(() => {
-    const release = () => {
-      if (scrubHolding.current) {
-        scrubHolding.current = false;
-        showScrubTime();
-      }
-    };
-    window.addEventListener("pointerup", release);
-    window.addEventListener("pointercancel", release);
-    return () => {
-      window.removeEventListener("pointerup", release);
-      window.removeEventListener("pointercancel", release);
-      window.clearTimeout(scrubTimer.current);
-    };
-  }, [showScrubTime]);
 
   // Create the map once.
   useEffect(() => {
@@ -265,7 +231,7 @@ export function RainMap() {
         style: MAP_STYLE,
         ...(saved
           ? { center: saved.center, zoom: saved.zoom }
-          : { bounds: IRELAND, fitBoundsOptions: { padding: IRELAND_PADDING } }),
+          : { bounds: IRELAND, fitBoundsOptions: { padding: irelandPadding() } }),
         maxBounds: MAX_BOUNDS,
         maxZoom: 10,
         dragRotate: false,
@@ -286,7 +252,7 @@ export function RainMap() {
       });
       // "Zoomed out" means at or below the zoom that fits Ireland in this viewport.
       const updateZoomedOut = () => {
-        const fit = map?.cameraForBounds(IRELAND, { padding: IRELAND_PADDING })?.zoom;
+        const fit = map?.cameraForBounds(IRELAND, { padding: irelandPadding() })?.zoom;
         if (map && fit != null) {
           setZoomedOut(map.getZoom() <= fit + 0.05);
         }
@@ -404,8 +370,9 @@ export function RainMap() {
         }
         // If the newest radar frame ("now") was showing, move on to the new newest.
         const prevLatest = framesRef.current.findLast((f) => f.kind === "radar")?.id;
-        if (prevLatest && selectedRef.current === prevLatest) {
-          setSelectedId(null);
+        const nextLatest = next.findLast((f) => f.kind === "radar")?.id;
+        if (prevLatest && nextLatest && selectedRef.current === prevLatest) {
+          setSelectedId(nextLatest);
         }
         newestRadar = next.findLast((f) => f.kind === "radar")?.time ?? newestRadar;
         setFrames(next);
@@ -461,11 +428,11 @@ export function RainMap() {
     };
   }, []);
 
-  // Start on the newest radar frame (now); if the shown frame drops out of the
-  // list, fall back to that too.
+  // Start on the first (oldest) frame, scrubber all the way left; if the shown
+  // frame drops out of the list, fall back to that too.
   const latestRadar = frames.findLastIndex((f) => f.kind === "radar");
   const found = frames.findIndex((f) => f.id === selectedId);
-  const index = found >= 0 ? found : Math.max(0, latestRadar);
+  const index = Math.max(0, found);
   const current = frames[index];
   const last = frames.length - 1;
 
@@ -578,6 +545,14 @@ export function RainMap() {
     setSelectedId(frames[Math.max(0, Math.min(frames.length - 1, i))].id);
   };
 
+  // The time split at its first colon (fmtTime's output varies by locale), so
+  // the colon can sit over the Now line on phones.
+  const kindLabel = current?.kind === "forecast" ? "Forecast" : "Radar";
+  const timeText = current ? fmtTime(current.time) : "";
+  const colonAt = timeText.indexOf(":");
+  const [timeBefore, timeColon, timeAfter] =
+    colonAt >= 0 ? [timeText.slice(0, colonAt), ":", timeText.slice(colonAt + 1)] : [timeText, "", ""];
+
   return (
     <>
       <div ref={containerRef} className="map" />
@@ -626,15 +601,6 @@ export function RainMap() {
                 </span>
               </>
             )}
-            {/* The frame's day and time above the thumb while moving it by hand
-                (touch screens only, see CSS), so a finger doesn't hide it. */}
-            <div
-              className={scrubTime ? "scrub-time scrub-time-on" : "scrub-time"}
-              style={{ "--pos": position(index) } as React.CSSProperties}
-              aria-hidden
-            >
-              {fmtDayTime(current.time)}
-            </div>
             {/* A fine-grained range (frames aren't evenly spaced) that snaps to the
                 nearest frame; keys step one frame at a time. */}
             <input
@@ -644,22 +610,7 @@ export function RainMap() {
               value={Math.round(position(index) * SLIDER_STEPS)}
               aria-label="Rain time"
               aria-valuetext={`${current.kind === "forecast" ? "Forecast" : "Radar"}, ${fmtTime(current.time)}`}
-              onChange={(e) => {
-                seek(nearestFrame(Number(e.target.value) / SLIDER_STEPS));
-                showScrubTime();
-              }}
-              onPointerDown={() => {
-                scrubHolding.current = true;
-                showScrubTime();
-              }}
-              onPointerUp={() => {
-                scrubHolding.current = false;
-                showScrubTime();
-              }}
-              onPointerCancel={() => {
-                scrubHolding.current = false;
-                showScrubTime();
-              }}
+              onChange={(e) => seek(nearestFrame(Number(e.target.value) / SLIDER_STEPS))}
               onKeyDown={(e) => {
                 const step: Record<string, number> = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -6, PageUp: 6 };
                 if (e.key in step) {
@@ -675,9 +626,22 @@ export function RainMap() {
               }}
             />
           </div>
+          {/* Desktop: the kind above the time. Phones (see CSS): one row above the
+              slider with the colon fixed over the Now line, "Radar" before the
+              time and "Forecast" after it. */}
           <div className="when">
-            <span className={`kind kind-${current.kind}`}>{current.kind === "forecast" ? "Forecast" : "Radar"}</span>
-            <time>{fmtTime(current.time)}</time>
+            <span className={`kind kind-top kind-${current.kind}`}>{kindLabel}</span>
+            <time>
+              <span className="time-before">
+                {current.kind === "radar" && <span className="kind kind-inline kind-radar">{kindLabel}</span>}
+                {timeBefore}
+              </span>
+              <span className="time-colon">{timeColon}</span>
+              <span className="time-after">
+                {timeAfter}
+                {current.kind === "forecast" && <span className="kind kind-inline kind-forecast">{kindLabel}</span>}
+              </span>
+            </time>
           </div>
         </div>
       )}
