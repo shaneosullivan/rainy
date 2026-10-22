@@ -24,8 +24,8 @@ Everything runs in the browser. There's no server-side data fetching.
 - **Forecast zoom:** forecast tiles only have data up to zoom 9 (radar goes further), so beyond that MapLibre upscales the zoom-9 tiles rather than loading blank ones.
 - **Basemap:** [OpenFreeMap](https://openfreemap.org/)'s free "positron" vector style. It needs no key, and its muted colours let the radar stand out.
 - **Saved view:** the map's centre and zoom are saved to `localStorage` after each move and restored on the next visit.
-- **PWA:** a web app manifest, icons generated from the logo, and a small service worker ([`public/sw.js`](public/sw.js)). The service worker uses network-first for pages, cache-first for build assets and basemap tiles, and never caches rain data. It registers in production builds only.
-- **Never stuck on old assets:** each `bun run build` writes `public/buildId.json` with the build timestamp ([`scripts/write-build-id.ts`](scripts/write-build-id.ts)), and `next.config.mjs` bakes the same id into the app. Whenever the page loads or regains focus, [`app/UpdateCheck.tsx`](app/UpdateCheck.tsx) fetches `/buildId.json` with a cache-busting parameter; if it differs from the baked-in id, a newer build is live, so it deletes every cache, unregisters the service worker and reloads. It reloads at most once per new build, so a stale CDN can't cause a loop. The check is off in `next dev`.
+- **PWA:** a web app manifest, icons generated from the logo, and a small service worker ([`public/sw.js`](public/sw.js)). The service worker caches everything that doesn't change, so returning visitors and the installed app rarely download anything twice: content-hashed build files, OpenFreeMap tiles, fonts and sprites (versioned URLs) and Met Éireann rain tiles (each URL is one frame's version) are cache-first; pages are network-first; third-party scripts and OpenFreeMap's style are served from cache and refreshed in the background. Caches are capped, and a failed cache write (e.g. storage full) never affects what's shown. Only the frame lists and `buildId.json` always go to the network. It registers in production builds only.
+- **Never stuck on old assets:** each `bun run build` writes `public/buildId.json` with the build timestamp ([`scripts/write-build-id.ts`](scripts/write-build-id.ts)), and `next.config.mjs` bakes the same id into the app. Whenever the page loads or regains focus, [`app/UpdateCheck.tsx`](app/UpdateCheck.tsx) fetches `/buildId.json` with a cache-busting parameter; if it differs from the baked-in id, a newer build is live, so it deletes the cached app pages (keeping the long-lived caches above), unregisters the service worker and reloads. It reloads at most once per new build, so a stale CDN can't cause a loop. The check is off in `next dev`.
 - **Install button:** [philfung/add-to-homescreen](https://github.com/philfung/add-to-homescreen), loaded from jsDelivr in its English-only build.
 - **SEO:** metadata, Open Graph/Twitter tags, a generated social preview image, `robots.txt`, `sitemap.xml` and schema.org `WebApplication` structured data.
 
@@ -93,7 +93,7 @@ The canonical URL used in metadata, the sitemap and structured data defaults to 
 NEXT_PUBLIC_SITE_URL=https://your-domain.example
 ```
 
-If you change the service worker's caching, bump `VERSION` in `public/sw.js` so returning visitors pick up the new caches.
+If you change what a service worker cache holds, bump that cache's version in `CACHES` in `public/sw.js`; old versions are deleted when the new worker activates, and the other caches are kept.
 
 ## Data and attribution
 

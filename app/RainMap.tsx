@@ -79,6 +79,8 @@ const ATTRIB_FADE_MS = 300;
 const PHONE_QUERY = "(max-width: 600px)";
 // Resolution of the scrubber's range input, which snaps to the nearest frame.
 const SLIDER_STEPS = 1000;
+// Load only the frame on screen until it's in (or this long), then the rest.
+const PRIME_TIMEOUT_MS = 2000;
 
 type Kind = "radar" | "forecast";
 type Frame = { id: string; kind: Kind; time: number; src: string; mod: number };
@@ -156,6 +158,10 @@ async function fetchFrames(): Promise<Array<Frame>> {
 
 const layerId = (f: Frame) => `frame-${f.id}`;
 
+// Start downloading MapLibre (the biggest file) as soon as this module runs in
+// the browser, rather than waiting for React to mount the map.
+const maplibre = typeof window !== "undefined" ? import("maplibre-gl") : null;
+
 /** Tile URL template for a frame (note Met Éireann's x/y/z order). */
 function tileUrl(f: Frame): string {
   const url = `${MAPS_API}/${API_PATH[f.kind]}/${f.src}/{x}/{y}/{z}/${f.mod}`;
@@ -195,7 +201,7 @@ export function RainMap() {
     let stopLongPress = () => {};
     let attribObserver: MutationObserver | null = null;
     let attribTimer = 0;
-    import("maplibre-gl").then((lib) => {
+    (maplibre ?? import("maplibre-gl")).then((lib) => {
       if (cancelled || !containerRef.current) {
         return;
       }
@@ -297,8 +303,10 @@ export function RainMap() {
         savePin({ lng: lngLat.lng, lat: lngLat.lat });
         navigator.vibrate?.(15);
       });
+      // Rain layers can go in as soon as the style is ready; no need to wait
+      // for every basemap tile ("load").
+      map.once("style.load", () => setMapReady(true));
       map.on("load", () => {
-        setMapReady(true);
         updateZoomedOut();
         // Zooming dismisses the pin hint (only the user zooms after load).
         map?.on("zoomstart", hideHint);
@@ -432,25 +440,52 @@ export function RainMap() {
   const current = frames[index];
   const last = frames.length - 1;
 
-  // One raster layer per frame, under the place labels so town names stay
-  // readable, with only the current frame visible. Every frame (radar and
-  // forecast) stays loaded, so scrubbing shows each one instantly.
+  // Until the frame on screen has loaded, load only it, so it isn't stuck in
+  // MapLibre's tile queue behind every other frame (or for PRIME_TIMEOUT_MS at most).
+  const [primed, setPrimed] = useState(false);
+  const currentId = current ? layerId(current) : null;
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady) {
+    if (primed || !map || !mapReady || !currentId) {
       return;
     }
-    const wanted = new Set(frames.map(layerId));
+    // A tile event for it, with the source loaded: its tiles are actually in
+    // (a source just added counts as "loaded" before it has requested any).
+    const check = (e: { sourceId?: string; tile?: unknown; isSourceLoaded?: boolean }) => {
+      if (e.sourceId === currentId && e.tile && e.isSourceLoaded) {
+        setPrimed(true);
+      }
+    };
+    map.on("sourcedata", check);
+    const timer = window.setTimeout(() => setPrimed(true), PRIME_TIMEOUT_MS);
+    return () => {
+      map.off("sourcedata", check);
+      window.clearTimeout(timer);
+    };
+  }, [primed, mapReady, currentId]);
+
+  // One raster layer per frame, under the place labels so town names stay
+  // readable, with only the current frame visible. Every frame (radar and
+  // forecast) stays loaded, so scrubbing shows each one instantly. They're
+  // added current frame first, then in playback order, so tiles load in the
+  // order they'll be shown.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || frames.length === 0) {
+      return;
+    }
+    const existing = new Set(frames.map(layerId));
     for (const layer of map.getStyle().layers ?? []) {
-      if (layer.id.startsWith("frame-") && !wanted.has(layer.id)) {
+      if (layer.id.startsWith("frame-") && !existing.has(layer.id)) {
         map.removeLayer(layer.id);
         map.removeSource(layer.id);
       }
     }
+    const order = primed ? frames.map((_, k) => frames[(index + k) % frames.length]) : [frames[index]];
     const beforeId = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
-    for (const f of frames) {
+    for (const f of order) {
       const id = layerId(f);
-      if (!wanted.has(id) || map.getLayer(id)) {
+      if (map.getLayer(id)) {
         continue;
       }
       map.addSource(id, {
@@ -476,7 +511,7 @@ export function RainMap() {
         map.setPaintProperty(layerId(f), "raster-opacity", i === index ? RAIN_OPACITY : 0);
       }
     });
-  }, [frames, index, mapReady]);
+  }, [frames, index, mapReady, primed]);
 
   // Playback: straight through the past, now and the forecast, holding on the
   // last frame before looping back to the start. Waits (briefly) for the next
@@ -491,7 +526,8 @@ export function RainMap() {
     const advance = () => {
       const map = mapRef.current;
       const id = layerId(frames[next]);
-      if (map?.getSource(id) && !map.isSourceLoaded(id) && waited < LOAD_WAIT_MS) {
+      // Not added yet (still loading the first frame) counts as not loaded.
+      if (map && (!map.getSource(id) || !map.isSourceLoaded(id)) && waited < LOAD_WAIT_MS) {
         waited += 150;
         timer = window.setTimeout(advance, 150);
         return;

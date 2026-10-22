@@ -2,8 +2,8 @@
 // Keeps the app from getting stuck on old assets. Every build writes
 // public/buildId.json and bakes the same id in here (next.config.mjs). When
 // the page loads or is refocused, fetch the deployed file (cache-busted); if
-// its id differs, a newer build is live, so drop every cache and the service
-// worker and reload from the network.
+// its id differs, a newer build is live, so drop the cached app pages and the
+// service worker and reload from the network.
 
 import { useEffect } from "react";
 
@@ -33,11 +33,15 @@ function alreadyReloadedFor(id: string): boolean {
   return false;
 }
 
-/** Deletes every Cache Storage cache and unregisters the service worker. */
+/**
+ * Deletes the cached app pages and unregisters the service worker. Caches of
+ * things that never change (content-hashed build files, third-party scripts,
+ * map and rain tiles; see public/sw.js) are kept.
+ */
 async function discardCaches() {
   if ("caches" in window) {
     const keys = await caches.keys();
-    await Promise.all(keys.map((k) => caches.delete(k)));
+    await Promise.all(keys.filter((k) => k.startsWith("shell-")).map((k) => caches.delete(k)));
   }
   if ("serviceWorker" in navigator) {
     const regs = await navigator.serviceWorker.getRegistrations();
