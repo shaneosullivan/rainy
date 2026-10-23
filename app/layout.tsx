@@ -53,25 +53,6 @@ export const viewport: Viewport = {
   themeColor: THEME_COLOR,
 };
 
-// iOS bug: an installed web app drawn under the status bar (black-translucent)
-// gets a page area one status bar too short, leaving an empty strip at the
-// bottom. Measure that shortfall as --ios-gap so the layout can extend into
-// it (globals.css). Runs before first paint; 0 everywhere else (Safari tabs,
-// Android, desktop).
-const IOS_GAP_SCRIPT = `(function () {
-  function measure() {
-    var gap = 0;
-    if (navigator.standalone) {
-      var full = innerWidth > innerHeight ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
-      gap = Math.max(0, Math.min(120, full - innerHeight));
-    }
-    document.documentElement.style.setProperty("--ios-gap", gap + "px");
-  }
-  measure();
-  addEventListener("resize", measure);
-  addEventListener("orientationchange", measure);
-})();`;
-
 // Structured data so search engines know this is a free weather web app.
 const JSON_LD = {
   "@context": "https://schema.org",
@@ -91,9 +72,6 @@ const JSON_LD = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-IE">
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: IOS_GAP_SCRIPT }} />
-      </head>
       <body>
         {children}
         <ServiceWorker />

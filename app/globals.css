@@ -21,8 +21,6 @@ body {
 .map {
   position: fixed;
   inset: 0;
-  /* Extend into the iOS installed-app gap at the bottom (see layout.tsx). */
-  bottom: calc(0px - var(--ios-gap, 0px));
   /* Long press drops a pin: no text selection or iOS callout. */
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -320,7 +318,7 @@ body {
 .scrubber {
   position: fixed;
   left: 50%;
-  bottom: calc(max(16px, env(safe-area-inset-bottom)) - var(--ios-gap, 0px));
+  bottom: max(16px, env(safe-area-inset-bottom));
   transform: translateX(-50%);
   width: min(640px, calc(100% - 32px));
   box-sizing: border-box;
@@ -574,7 +572,7 @@ body {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(max(16px, env(safe-area-inset-bottom)) - var(--ios-gap, 0px) + var(--scrubber-h) + 12px);
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + var(--scrubber-h) + 12px);
   z-index: 10;
   display: flex;
   flex-direction: column;
