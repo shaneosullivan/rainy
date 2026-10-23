@@ -186,6 +186,10 @@ export function RainMap() {
   const [playing, setPlaying] = useState(true);
   // Whether the whole of Ireland is in view (the starting zoom, or further out).
   const [zoomedOut, setZoomedOut] = useState(true);
+  // False while the frame on screen is (re)loading its tiles: at first load and
+  // after every map move. Until it's true, only that frame's layer is shown, so
+  // its tiles aren't queued behind every other frame's.
+  const [primed, setPrimed] = useState(false);
   // The "Long press to drop a pin" hint: only for people without a pin, shown
   // briefly, then faded out ("out") and removed ("off").
   const [hint, setHint] = useState<"off" | "on" | "out">("off");
@@ -258,6 +262,8 @@ export function RainMap() {
         }
       };
       map.on("zoom", updateZoomedOut);
+      // Moving the map needs new tiles for every frame: load the one on screen first.
+      map.on("movestart", () => setPrimed(false));
       map.on("resize", updateZoomedOut);
 
       // The user's pin: restored from last time, and dropped (replacing any
@@ -440,26 +446,20 @@ export function RainMap() {
   const current = frames[index];
   const last = frames.length - 1;
 
-  // Until the frame on screen has loaded, load only it, so it isn't stuck in
-  // MapLibre's tile queue behind every other frame (or for PRIME_TIMEOUT_MS at most).
-  const [primed, setPrimed] = useState(false);
+  // Prime: wait for the frame on screen to load (PRIME_TIMEOUT_MS at most).
   const currentId = current ? layerId(current) : null;
   useEffect(() => {
     const map = mapRef.current;
     if (primed || !map || !mapReady || !currentId) {
       return;
     }
-    // A tile event for it, with the source loaded: its tiles are actually in
-    // (a source just added counts as "loaded" before it has requested any).
-    const check = (e: { sourceId?: string; tile?: unknown; isSourceLoaded?: boolean }) => {
-      if (e.sourceId === currentId && e.tile && e.isSourceLoaded) {
-        setPrimed(true);
-      }
-    };
-    map.on("sourcedata", check);
-    const timer = window.setTimeout(() => setPrimed(true), PRIME_TIMEOUT_MS);
+    // "idle": everything shown (the basemap and just this frame) has loaded,
+    // including when its tiles were already cached.
+    const done = () => setPrimed(true);
+    map.on("idle", done);
+    const timer = window.setTimeout(done, PRIME_TIMEOUT_MS);
     return () => {
-      map.off("sourcedata", check);
+      map.off("idle", done);
       window.clearTimeout(timer);
     };
   }, [primed, mapReady, currentId]);
@@ -481,7 +481,9 @@ export function RainMap() {
         map.removeSource(layer.id);
       }
     }
-    const order = primed ? frames.map((_, k) => frames[(index + k) % frames.length]) : [frames[index]];
+    // Added in playback order from the current frame, so when they're all shown
+    // their tiles queue in the order they'll be needed.
+    const order = frames.map((_, k) => frames[(index + k) % frames.length]);
     const beforeId = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
     for (const f of order) {
       const id = layerId(f);
@@ -501,15 +503,23 @@ export function RainMap() {
           id,
           type: "raster",
           source: id,
+          layout: { visibility: "none" },
           paint: { "raster-opacity": 0, "raster-opacity-transition": { duration: 200, delay: 0 }, "raster-fade-duration": 0 },
         },
         beforeId,
       );
     }
+    // Hidden layers don't load tiles: until primed, show only the current frame.
     frames.forEach((f, i) => {
-      if (map.getLayer(layerId(f))) {
-        map.setPaintProperty(layerId(f), "raster-opacity", i === index ? RAIN_OPACITY : 0);
+      const id = layerId(f);
+      if (!map.getLayer(id)) {
+        return;
       }
+      const visibility = primed || i === index ? "visible" : "none";
+      if (map.getLayoutProperty(id, "visibility") !== visibility) {
+        map.setLayoutProperty(id, "visibility", visibility);
+      }
+      map.setPaintProperty(id, "raster-opacity", i === index ? RAIN_OPACITY : 0);
     });
   }, [frames, index, mapReady, primed]);
 
@@ -517,7 +527,8 @@ export function RainMap() {
   // last frame before looping back to the start. Waits (briefly) for the next
   // frame's tiles so it doesn't flash empty frames.
   useEffect(() => {
-    if (!playing || last < 1) {
+    // Paused while the frame on screen loads (other frames aren't loading yet).
+    if (!playing || last < 1 || !primed) {
       return;
     }
     const next = index < last ? index + 1 : 0;
@@ -536,7 +547,7 @@ export function RainMap() {
     };
     timer = window.setTimeout(advance, index === last ? HOLD_MS : FRAME_MS);
     return () => window.clearTimeout(timer);
-  }, [playing, index, last, frames]);
+  }, [playing, index, last, frames, primed]);
 
   // Where the scrubber track switches from radar to forecast (0-1), if it does.
   const radarCount = latestRadar + 1;
