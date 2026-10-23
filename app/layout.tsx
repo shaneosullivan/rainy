@@ -72,6 +72,9 @@ const JSON_LD = {
   image: `${SITE_URL}/opengraph-image`,
 };
 
+// Vercel sets VERCEL_ENV to "production" only for builds of the live site.
+const ANALYTICS = process.env.VERCEL_ENV === "production";
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-IE">
@@ -80,17 +83,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ServiceWorker />
         <UpdateCheck />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }} />
-        {/* SimpleAnalytics (privacy-friendly visit tracking), last in <body>. */}
-        <script defer src="https://scripts.simpleanalyticscdn.com/latest.js" />
+        {/* SimpleAnalytics (privacy-friendly visit tracking), last in <body>.
+            Only on the live site: not in dev, local builds or Vercel previews. */}
+        {ANALYTICS && <script defer src="https://scripts.simpleanalyticscdn.com/latest.js" />}
         {/* Counts visits from browsers with JavaScript turned off. */}
-        <noscript>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="https://queue.simpleanalyticscdn.com/noscript.gif"
-            alt=""
-            referrerPolicy="no-referrer-when-downgrade"
-          />
-        </noscript>
+        {ANALYTICS && (
+          <noscript>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="https://queue.simpleanalyticscdn.com/noscript.gif"
+              alt=""
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </noscript>
+        )}
       </body>
     </html>
   );

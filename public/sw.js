@@ -9,20 +9,19 @@
 //            cached and refreshed in the background
 //   basemap  OpenFreeMap tiles, fonts and sprites (versioned URLs), plus its
 //            style and tile index (refreshed in the background)
-//   rain     Met Éireann radar/forecast tiles (each URL is one frame's
-//            version, so it never changes; capped, oldest dropped)
 // Only `shell` is cleared when a new build is deployed (app/UpdateCheck.tsx).
+// Met Éireann rain tiles are left to the browser's own HTTP cache (they're
+// sent with a one-day max-age): a new zoom level needs ~1000 of them at once,
+// and passing them through here was far slower, especially in Firefox. A
+// cache from an older version of this file ("rain-v1") is deleted on activate.
 const CACHES = {
   shell: "shell-v3",
   static: "static-v1",
   vendor: "vendor-v1",
   basemap: "basemap-v1",
-  rain: "rain-v1",
 };
 // Enough for every basemap tile in the pannable area at every zoom.
 const MAX_BASEMAP = 3000;
-// About an hour or two of radar and forecast frames at a typical view.
-const MAX_RAIN = 1500;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -48,15 +47,25 @@ async function trim(cache, max) {
   await Promise.all(keys.slice(0, Math.max(0, keys.length - max)).map((k) => cache.delete(k)));
 }
 
+// Listing a cache with thousands of entries is slow (very slow in Firefox, where
+// it holds up every other lookup), so trim only after every TRIM_EVERY saves
+// rather than after each one. The cap can be exceeded by that much meanwhile.
+const TRIM_EVERY = 200;
+const saves = {};
+function maybeTrim(cache, name, max) {
+  saves[name] = (saves[name] ?? 0) + 1;
+  return saves[name] % TRIM_EVERY === 1 ? trim(cache, max) : undefined;
+}
+
 const cacheable = (res) => res.ok || res.type === "opaque";
 
 // Save a copy, but never let caching break the response itself (e.g. when the
 // storage quota is full, put() rejects).
-async function save(cache, request, res, max) {
+async function save(cache, request, res, max, name) {
   try {
     await cache.put(request, res);
     if (max) {
-      await trim(cache, max);
+      await maybeTrim(cache, name, max);
     }
   } catch {
     // Not cached this time; the response still goes back as normal.
@@ -88,7 +97,7 @@ async function cacheFirst(event, cacheName, max) {
   }
   const res = await fetch(request);
   if (cacheable(res)) {
-    event.waitUntil(save(cache, request, res.clone(), max));
+    event.waitUntil(save(cache, request, res.clone(), max, cacheName));
   }
   return res;
 }
@@ -125,11 +134,7 @@ self.addEventListener("fetch", (event) => {
     return; // app/UpdateCheck.tsx
   }
   if (url.hostname === "gdal.met.ie") {
-    // Frame lists change every few minutes; tiles are one frame's version each.
-    if (/^\/api\/maps\/[a-z-]+\/\d{12}\//.test(url.pathname)) {
-      event.respondWith(cacheFirst(event, CACHES.rain, MAX_RAIN));
-    }
-    return;
+    return; // rain frame lists and tiles: see the note at the top
   }
 
   if (request.mode === "navigate") {

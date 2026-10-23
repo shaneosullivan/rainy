@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap, Marker } from "maplibre-gl";
 import { FORECAST_PROTOCOL, loadForecastTile } from "./forecastTiles";
+import { prefetch, rasterTileZoom, tileUrls } from "./prefetchTiles";
 import { InstallButton } from "./InstallButton";
 import { Legend } from "./Legend";
 import {
@@ -52,9 +53,12 @@ const ATTRIBUTION =
   '<div>Radar &amp; forecast © <a href="https://www.met.ie/" target="_blank" rel="noopener">Met Éireann</a></div>' +
   `<div>${BASEMAP_ATTRIBUTION}</div>`;
 const RAIN_OPACITY = 0.75;
+// While a finger is on the map the rain fades to this fraction of RAIN_OPACITY,
+// so the map underneath is easier to read.
+const TOUCH_OPACITY_SCALE = 0.8;
 const FRAME_MS = 450;
 const HOLD_MS = 1600; // pause on the last frame before looping back to the start
-const LOAD_WAIT_MS = 3000; // max wait for the next frame's tiles before moving on
+const LOAD_WAIT_MS = 8000; // max wait for the next frame's tiles before moving on (rather than show a blank frame)
 // Met Éireann publishes a radar frame every 5 minutes, 4-5 minutes after its
 // timestamp, so each lands just before the next 5-minute mark. Refresh just
 // after each mark, and retry a few times if the new frame isn't out yet.
@@ -81,6 +85,8 @@ const PHONE_QUERY = "(max-width: 600px)";
 const SLIDER_STEPS = 1000;
 // Load only the frame on screen until it's in (or this long), then the rest.
 const PRIME_TIMEOUT_MS = 2000;
+// ...and only once the map has been still (and idle) for this long.
+const PRIME_SETTLE_MS = 500;
 
 type Kind = "radar" | "forecast";
 type Frame = { id: string; kind: Kind; time: number; src: string; mod: number };
@@ -113,9 +119,12 @@ function parseSrc(src: string): number {
 }
 
 const API_PATH: Record<Kind, string> = { radar: "radar", forecast: "rainfall" };
-// The deepest zoom each layer has tiles for: forecast tiles are blank beyond
-// zoom 9 (radar goes to 11). Past it, MapLibre upscales the deepest tiles.
-const MAX_TILE_ZOOM: Record<Kind, number> = { radar: 10, forecast: 9 };
+// The deepest zoom to download rain tiles for; past it, MapLibre scales these
+// up. The radar is measured in ~1 km squares and the forecast is coarser still,
+// and a zoom 7 pixel over Ireland is ~0.7 km, so deeper tiles (radar has them to
+// 11, forecast to 9) add no detail, just smoother edges and, for radar, a drawn
+// coastline. Stopping here means zooming in reuses what's already loaded.
+const MAX_TILE_ZOOM: Record<Kind, number> = { radar: 7, forecast: 7 };
 
 async function fetchKind(kind: Kind): Promise<Array<Frame>> {
   // no-cache: revalidate rather than reuse the browser's copy (the API allows 60s).
@@ -162,9 +171,14 @@ const layerId = (f: Frame) => `frame-${f.id}`;
 // the browser, rather than waiting for React to mount the map.
 const maplibre = typeof window !== "undefined" ? import("maplibre-gl") : null;
 
-/** Tile URL template for a frame (note Met Éireann's x/y/z order). */
+/** Met Éireann's tile URL template for a frame (note its x/y/z order). */
+function metTileUrl(f: Frame): string {
+  return `${MAPS_API}/${API_PATH[f.kind]}/${f.src}/{x}/{y}/{z}/${f.mod}`;
+}
+
+/** The map's tile URL template for a frame: forecast tiles go through the coastline remover. */
 function tileUrl(f: Frame): string {
-  const url = `${MAPS_API}/${API_PATH[f.kind]}/${f.src}/{x}/{y}/{z}/${f.mod}`;
+  const url = metTileUrl(f);
   return f.kind === "forecast" ? url.replace(/^https:/, `${FORECAST_PROTOCOL}:`) : url;
 }
 
@@ -197,6 +211,8 @@ export function RainMap() {
   // Whether the compact (phone) attribution is expanded; on phones the legend
   // shows only while it isn't.
   const [attribOpen, setAttribOpen] = useState(true);
+  // Whether a finger is on the map (the rain fades a little meanwhile).
+  const [touching, setTouching] = useState(false);
 
   // Create the map once.
   useEffect(() => {
@@ -265,6 +281,11 @@ export function RainMap() {
       // Moving the map needs new tiles for every frame: load the one on screen first.
       map.on("movestart", () => setPrimed(false));
       map.on("resize", updateZoomedOut);
+      const container = map.getContainer();
+      const touchChange = (e: TouchEvent) => setTouching(e.touches.length > 0);
+      for (const type of ["touchstart", "touchend", "touchcancel"] as const) {
+        container.addEventListener(type, touchChange, { passive: true });
+      }
 
       // The user's pin: restored from last time, and dropped (replacing any
       // existing one) by a long press. Sized loosely by zoom so it's always
@@ -446,21 +467,45 @@ export function RainMap() {
   const current = frames[index];
   const last = frames.length - 1;
 
-  // Prime: wait for the frame on screen to load (PRIME_TIMEOUT_MS at most).
+  // Prime: wait for the frame on screen to load, and for the map to settle,
+  // before showing (and so loading) every other frame again. Waiting for no
+  // movement for PRIME_SETTLE_MS means a run of wheel steps or drags counts as
+  // one move, rather than showing every frame between steps and hiding them
+  // again (which cancels all their downloads). PRIME_TIMEOUT_MS at most once still.
   const currentId = current ? layerId(current) : null;
   useEffect(() => {
     const map = mapRef.current;
     if (primed || !map || !mapReady || !currentId) {
       return;
     }
-    // "idle": everything shown (the basemap and just this frame) has loaded,
+    let settle = 0;
+    let fallback = 0;
+    const prime = () => setPrimed(true);
+    const startFallback = () => {
+      window.clearTimeout(fallback);
+      fallback = window.setTimeout(prime, PRIME_TIMEOUT_MS);
+    };
+    // "idle": everything shown (the basemap and this frame) has loaded,
     // including when its tiles were already cached.
-    const done = () => setPrimed(true);
-    map.on("idle", done);
-    const timer = window.setTimeout(done, PRIME_TIMEOUT_MS);
+    const idle = () => {
+      window.clearTimeout(settle);
+      settle = window.setTimeout(prime, PRIME_SETTLE_MS);
+    };
+    // Moving cancels both; the fallback restarts once the map stops.
+    const moving = () => {
+      window.clearTimeout(settle);
+      window.clearTimeout(fallback);
+    };
+    map.on("idle", idle);
+    map.on("movestart", moving);
+    map.on("moveend", startFallback);
+    startFallback();
     return () => {
-      map.off("idle", done);
-      window.clearTimeout(timer);
+      map.off("idle", idle);
+      map.off("movestart", moving);
+      map.off("moveend", startFallback);
+      window.clearTimeout(settle);
+      window.clearTimeout(fallback);
     };
   }, [primed, mapReady, currentId]);
 
@@ -519,9 +564,44 @@ export function RainMap() {
       if (map.getLayoutProperty(id, "visibility") !== visibility) {
         map.setLayoutProperty(id, "visibility", visibility);
       }
-      map.setPaintProperty(id, "raster-opacity", i === index ? RAIN_OPACITY : 0);
+      const opacity = touching ? RAIN_OPACITY * TOUCH_OPACITY_SCALE : RAIN_OPACITY;
+      map.setPaintProperty(id, "raster-opacity", i === index ? opacity : 0);
     });
-  }, [frames, index, mapReady, primed]);
+  }, [frames, index, mapReady, primed, touching]);
+
+  // Once every frame has loaded for this view, download every frame's tiles for
+  // the whole pannable area at the zoomed-out tile zoom, so zooming out to all
+  // of Ireland (or panning) is instant. Stops when the map moves (the frame on
+  // screen comes first) and picks up where it left off once primed again.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !primed || frames.length === 0) {
+      return;
+    }
+    const controller = new AbortController();
+    const start = () => {
+      map.off("idle", start);
+      const fit = map.cameraForBounds(IRELAND, { padding: irelandPadding() })?.zoom ?? map.getZoom();
+      const order = frames.map((_, k) => frames[(index + k) % frames.length]);
+      const urls = order.flatMap((f) =>
+        tileUrls(metTileUrl(f), MAX_BOUNDS, rasterTileZoom(fit, 4, MAX_TILE_ZOOM[f.kind])),
+      );
+      void prefetch(urls, controller.signal);
+    };
+    // "idle": every shown frame (all of them, once primed) has loaded.
+    const loaded = frames.every((f) => map.getSource(layerId(f)) && map.isSourceLoaded(layerId(f)));
+    if (loaded && map.areTilesLoaded()) {
+      start();
+    } else {
+      map.on("idle", start);
+    }
+    return () => {
+      map.off("idle", start);
+      controller.abort();
+    };
+    // Not re-run as the frame on screen changes (index): only the start order uses it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frames, mapReady, primed]);
 
   // Playback: straight through the past, now and the forecast, holding on the
   // last frame before looping back to the start. Waits (briefly) for the next
