@@ -5,7 +5,7 @@
 // Caches, each with its own version so bumping one doesn't wipe the others:
 //   shell    the page and other public files (refreshed; cleared on a new build)
 //   static   /_next/static: content-hashed build files, so never stale
-//   vendor   third-party scripts (jsDelivr pinned, Simple Analytics), served
+//   vendor   third-party scripts (jsDelivr pinned, Umami tracker), served
 //            cached and refreshed in the background
 //   basemap  OpenFreeMap tiles, fonts and sprites (versioned URLs), plus its
 //            style and tile index (refreshed in the background)
@@ -144,7 +144,7 @@ self.addEventListener("fetch", (event) => {
   } else if (sameOrigin && !url.searchParams.has("_rsc") && !request.headers.has("RSC")) {
     // Other public files (icons, pin, manifest); not Next.js page data.
     event.respondWith(staleWhileRevalidate(event, CACHES.shell));
-  } else if (url.hostname === "cdn.jsdelivr.net" || url.hostname === "scripts.simpleanalyticscdn.com") {
+  } else if (url.hostname === "cdn.jsdelivr.net" || (url.hostname === "chofterstats.com" && url.pathname === "/cs.js")) {
     // Loaded by plain <script> tags, so responses are opaque: we can't tell a
     // failure from a success. Serving the cached copy while refreshing it
     // means a bad response is replaced on the next load, not kept forever.

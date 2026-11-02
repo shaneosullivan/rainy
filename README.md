@@ -13,7 +13,7 @@ A deliberately tiny web app: a full-screen map of Ireland with Met Éireann's ra
 - Long press to drop a pin (with a drop-and-bounce animation); long press the pin to remove it. It's remembered, and sized to stay easy to see at every zoom
 - Installable as an app (PWA), with an "Install App" button that shows the right steps for your phone or browser
 - Works offline for the page and basemap (the rain data itself needs a connection)
-- No API keys, no backend, and only privacy-friendly, cookie-free visit counts ([Simple Analytics](https://www.simpleanalytics.com/))
+- No API keys, no backend, and only privacy-friendly, cookie-free visit counts (self-hosted [Umami](https://umami.is/))
 
 ## How it works
 
