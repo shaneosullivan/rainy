@@ -2,7 +2,7 @@
 // download, decode, remove the baked-in coastline, and send back an
 // ImageBitmap that MapLibre can use directly.
 
-import { cleanTile } from "./forecastTiles";
+import { cleanTile } from "./cleanTile";
 
 type Request = { id: number; url: string } | { id: number; abort: true };
 

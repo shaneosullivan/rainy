@@ -4,37 +4,10 @@
 // doesn't hold up the page while scrubbing, and each cleaned tile goes back
 // to MapLibre as an ImageBitmap (no PNG re-encode and re-decode).
 
-import { removeCoastline } from "./coastline";
+import { cleanTile } from "./cleanTile";
 
 export const FORECAST_PROTOCOL = "metforecast";
 const MAX_WORKERS = 4;
-
-/** Download a forecast tile, remove its coastline, and return it as an ImageBitmap. */
-export async function cleanTile(url: string, signal?: AbortSignal): Promise<ImageBitmap> {
-  const res = await fetch(url, { signal });
-  if (!res.ok) {
-    throw new Error(`Forecast tile failed (${res.status})`);
-  }
-  const bitmap = await createImageBitmap(await res.blob());
-  const { width, height } = bitmap;
-  const canvas: OffscreenCanvas | HTMLCanvasElement =
-    typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(width, height) : document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true }) as
-    | OffscreenCanvasRenderingContext2D
-    | CanvasRenderingContext2D
-    | null;
-  if (!ctx) {
-    throw new Error("No 2D canvas");
-  }
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const pixels = ctx.getImageData(0, 0, width, height);
-  removeCoastline(pixels.data, width, height);
-  ctx.putImageData(pixels, 0, 0);
-  return createImageBitmap(canvas);
-}
 
 type Pending = { resolve: (b: ImageBitmap) => void; reject: (e: Error) => void };
 
